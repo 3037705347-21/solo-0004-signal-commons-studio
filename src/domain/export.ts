@@ -14,10 +14,14 @@ export function parseSnapshot(raw: string): Snapshot | null {
     if (!value || typeof value !== "object") return null;
     const candidate = value as Partial<Snapshot>;
     if (
-      candidate.schemaVersion !== 1 ||
+      candidate.schemaVersion !== 2 ||
       !candidate.project ||
+      !candidate.preferences ||
       !candidate.summary ||
-      !Array.isArray(candidate.sites)
+      !Number.isInteger(candidate.revision) ||
+      typeof candidate.fingerprint !== "string" ||
+      !Array.isArray(candidate.sites) ||
+      !Array.isArray(candidate.unresolvedIssues)
     )
       return null;
     return value as Snapshot;

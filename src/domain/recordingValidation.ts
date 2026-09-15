@@ -1,5 +1,5 @@
 import type { Recording, RecordingDraft, ValidationError } from "./models";
-import { createId } from "./ids";
+import { createId, normalizeCatalogId } from "./ids";
 
 const positive = (
   value: string,
@@ -23,8 +23,8 @@ export function validateRecordingDraft(
   if (
     recordings.some(
       (recording) =>
-        recording.catalogId.toLowerCase() ===
-          draft.catalogId.trim().toLowerCase() && recording.id !== existingId,
+        normalizeCatalogId(recording.catalogId) ===
+          normalizeCatalogId(draft.catalogId) && recording.id !== existingId,
     )
   )
     errors.push({ field: "catalogId", message: "Catalog ID must be unique." });
@@ -79,7 +79,7 @@ export function recordingFromDraft(
   const now = new Date().toISOString();
   return {
     id: existing?.id ?? createId("recording"),
-    catalogId: draft.catalogId.trim(),
+    catalogId: normalizeCatalogId(draft.catalogId),
     title: draft.title.trim(),
     source: draft.source.trim(),
     recordedOn: draft.recordedOn.trim(),

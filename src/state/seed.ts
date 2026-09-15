@@ -270,7 +270,9 @@ const sites: Site[] = [
 ];
 export function createSeedStudy(): StudyState {
   return {
-    version: 1,
+    version: 2,
+    revision: 0,
+    updatedAt: stamp,
     project: {
       id: "signal-commons-2026",
       title: "Signal Commons: Listening Across the City",
@@ -310,5 +312,7 @@ export function createSeedStudy(): StudyState {
       },
     ],
     preferences: { pace: "steady", accessPriority: 70, listenerCount: 6 },
+    auditLog: [],
+    release: null,
   };
 }

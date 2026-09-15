@@ -1,9 +1,75 @@
-import { regressReadyProject, transitionIssue } from "../domain/transitions";
+import { createId } from "../domain/ids";
+import { canPlaceRecording } from "../domain/routeAnalysis";
+import { compactLog, makeLogEntry } from "../domain/studyLog";
+import {
+  regressReadyProject,
+  transitionIssue,
+  transitionProject,
+} from "../domain/transitions";
 import type { StudyState } from "../domain/models";
 import type { StudyAction } from "./actions";
 
-function stamp(state: StudyState): StudyState {
-  return { ...state, lastSavedAt: new Date().toISOString() };
+const AUDIT_LOG_LIMIT = 80;
+
+function finalizeAction(
+  state: StudyState,
+  action: StudyAction,
+  revision: number,
+  at = new Date(),
+): StudyState {
+  const timestamp = at.toISOString();
+  const entry = makeLogEntry(
+    action,
+    createId("event"),
+    revision,
+    at,
+  );
+  return {
+    ...state,
+    revision,
+    updatedAt: timestamp,
+    lastSavedAt: timestamp,
+    auditLog: compactLog([...state.auditLog, entry], AUDIT_LOG_LIMIT),
+  };
+}
+
+function invalidateRelease(state: StudyState): StudyState {
+  if (!state.release || state.release.status === "stale") return state;
+  return {
+    ...state,
+    release: { ...state.release, status: "stale" },
+  };
+}
+
+function mutate(
+  state: StudyState,
+  action: StudyAction,
+  next: StudyState,
+): StudyState {
+  if (next === state) return state;
+  return finalizeAction(
+    invalidateRelease(next),
+    action,
+    state.revision + 1,
+  );
+}
+
+function applyReadinessStage(
+  state: StudyState,
+  ready: boolean,
+): StudyState {
+  if (!ready) {
+    return state.project.stage === "ready"
+      ? transitionProject(state, "review")
+      : state;
+  }
+  const reviewState =
+    state.project.stage === "draft"
+      ? transitionProject(state, "review")
+      : state;
+  return reviewState.project.stage === "review"
+    ? transitionProject(reviewState, "ready")
+    : reviewState;
 }
 
 function removeRecordingFromSites(
@@ -28,8 +94,30 @@ function assignRecording(
   if (!state.recordings.some((recording) => recording.id === recordingId)) {
     throw new Error("Cannot place a clip that is not in the library.");
   }
-  if (!state.sites.some((site) => site.id === siteId)) {
-    throw new Error("Cannot place an recording in an unknown site.");
+  const targetSite = state.sites.find((site) => site.id === siteId);
+  if (!targetSite) {
+    throw new Error("Cannot place a recording in an unknown site.");
+  }
+  const recording = state.recordings.find(
+    (candidate) => candidate.id === recordingId,
+  );
+  if (!recording) {
+    throw new Error("Cannot place a clip that is not in the library.");
+  }
+  const recordingById = new Map(
+    state.recordings.map((candidate) => [candidate.id, candidate]),
+  );
+  const currentClips = targetSite.recordingIds
+    .filter((id) => id !== recordingId)
+    .map((id) => recordingById.get(id))
+    .filter((candidate): candidate is NonNullable<typeof candidate> =>
+      Boolean(candidate),
+    );
+  const [blocking] = canPlaceRecording(recording, targetSite, currentClips).filter(
+    (finding) => finding.type === "error",
+  );
+  if (blocking) {
+    throw new Error(blocking.detail);
   }
   const removed = removeRecordingFromSites(state, recordingId);
   return {
@@ -87,14 +175,20 @@ export function workspaceReducer(
             recording.id === action.recording.id ? action.recording : recording,
           )
         : [...state.recordings, action.recording];
-      return stamp(regressReadyProject({ ...state, recordings }));
+      return mutate(
+        state,
+        action,
+        regressReadyProject({ ...state, recordings }),
+      );
     }
     case "recording/remove": {
       const withoutPlacement = removeRecordingFromSites(
         state,
         action.recordingId,
       );
-      return stamp(
+      return mutate(
+        state,
+        action,
         regressReadyProject({
           ...withoutPlacement,
           recordings: withoutPlacement.recordings.filter(
@@ -107,7 +201,9 @@ export function workspaceReducer(
       );
     }
     case "placement/assign":
-      return stamp(
+      return mutate(
+        state,
+        action,
         regressReadyProject(
           assignRecording(
             state,
@@ -118,13 +214,17 @@ export function workspaceReducer(
         ),
       );
     case "placement/remove":
-      return stamp(
+      return mutate(
+        state,
+        action,
         regressReadyProject(
           removeRecordingFromSites(state, action.recordingId),
         ),
       );
     case "placement/reorder":
-      return stamp(
+      return mutate(
+        state,
+        action,
         regressReadyProject(
           reorderRecording(
             state,
@@ -135,14 +235,18 @@ export function workspaceReducer(
         ),
       );
     case "issue/add":
-      return stamp(
+      return mutate(
+        state,
+        action,
         regressReadyProject({
           ...state,
           issues: [action.issue, ...state.issues],
         }),
       );
     case "issue/transition":
-      return stamp(
+      return mutate(
+        state,
+        action,
         regressReadyProject({
           ...state,
           issues: state.issues.map((issue) =>
@@ -153,16 +257,29 @@ export function workspaceReducer(
         }),
       );
     case "preferences/update":
-      return stamp({ ...state, preferences: action.preferences });
-    case "project/readiness":
-      return stamp({
-        ...state,
-        project: {
-          ...state.project,
-          stage: action.ready ? "ready" : "review",
-          lastReadinessCheck: action.checkedAt,
+      return mutate(
+        state,
+        action,
+        regressReadyProject({ ...state, preferences: action.preferences }),
+      );
+    case "project/readiness": {
+      const staged = applyReadinessStage(
+        state,
+        action.release.readiness.ready,
+      );
+      return finalizeAction(
+        {
+          ...staged,
+          project: {
+            ...staged.project,
+            lastReadinessCheck: action.release.readiness.checkedAt,
+          },
+          release: action.release,
         },
-      });
+        action,
+        state.revision,
+      );
+    }
     case "workspace/reset":
       return action.state;
     default:

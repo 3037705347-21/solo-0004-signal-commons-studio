@@ -14,7 +14,11 @@ import {
 } from "../domain/recordingValidation";
 import { createId } from "../domain/ids";
 import { analyzeRoute } from "../domain/routeAnalysis";
-import { buildReleaseSnapshot, evaluateRelease } from "../domain/releaseRules";
+import {
+  createReleaseRecord,
+  evaluateRelease,
+  isReleaseCurrent,
+} from "../domain/releaseRules";
 import type {
   Recording,
   RecordingDraft,
@@ -212,23 +216,22 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     const result = evaluateRelease(state, analysis);
     dispatch({
       type: "project/readiness",
-      ready: result.ready,
-      checkedAt: result.checkedAt,
+      release: createReleaseRecord(state, analysis, result),
     });
     return result;
   }, [state]);
 
   const createSnapshot = useCallback((): CommandResult<Snapshot> => {
-    const analysis = analyzeRoute(state.recordings, state.sites);
-    const readiness = evaluateRelease(state, analysis);
-    if (!readiness.ready)
+    if (!isReleaseCurrent(state, state.release))
       return {
         ok: false,
-        message: readiness.blockers[0] ?? "The plan is not ready.",
+        message:
+          state.release?.readiness.blockers[0] ??
+          "Run a current readiness check before exporting.",
       };
     return {
       ok: true,
-      value: buildReleaseSnapshot(state, analysis, readiness),
+      value: state.release.snapshot,
     };
   }, [state]);
 

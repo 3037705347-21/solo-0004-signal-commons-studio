@@ -1,12 +1,5 @@
 import type { StudyAction } from "../state/actions";
-
-export interface CommandLogEntry {
-  id: string;
-  action: StudyAction["type"];
-  summary: string;
-  timestamp: string;
-  actor: "local-user" | "system";
-}
+import type { CommandLogEntry } from "./models";
 
 export function describeAction(action: StudyAction): string {
   switch (action.type) {
@@ -27,7 +20,7 @@ export function describeAction(action: StudyAction): string {
     case "preferences/update":
       return `Updated listener profile`;
     case "project/readiness":
-      return action.ready
+      return action.release.readiness.ready
         ? "Marked project ready"
         : "Returned project to review";
     case "workspace/reset":
@@ -38,11 +31,13 @@ export function describeAction(action: StudyAction): string {
 export function makeLogEntry(
   action: StudyAction,
   id: string,
+  revision: number,
   at = new Date(),
   actor: CommandLogEntry["actor"] = "local-user",
 ): CommandLogEntry {
   return {
     id,
+    revision,
     action: action.type,
     summary: describeAction(action),
     timestamp: at.toISOString(),

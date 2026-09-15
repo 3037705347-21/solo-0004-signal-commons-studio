@@ -47,7 +47,14 @@ export function RoutePage() {
   );
   const unplaced = getUnplacedRecordings(state.recordings, state.sites);
   const place = (recording: Recording, site: Site) => {
-    const preview = canPlaceRecording(recording, site);
+    const recordingById = new Map(
+      state.recordings.map((candidate) => [candidate.id, candidate]),
+    );
+    const currentClips = site.recordingIds
+      .filter((id) => id !== recording.id)
+      .map((id) => recordingById.get(id))
+      .filter((candidate): candidate is Recording => Boolean(candidate));
+    const preview = canPlaceRecording(recording, site, currentClips);
     if (preview.some((finding) => finding.type === "error")) {
       setNotice(preview[0].detail);
       window.setTimeout(() => setNotice(null), 2800);

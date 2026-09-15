@@ -37,5 +37,16 @@ describe("recording validation", () => {
     });
     expect(recording.audioSpec.sampleRate).toBe(48000);
     expect(recording.audioSpec.durationSeconds).toBe(120);
+    expect(recording.catalogId).toBe("SC-2026-001");
+  });
+  it("normalizes catalogue ids before persistence", () => {
+    const recording = recordingFromDraft({
+      ...emptyRecordingDraft,
+      catalogId: " sc 2026 002 ",
+      title: "Signal",
+      source: "Field team",
+      summary: "A sufficiently descriptive summary of the recording.",
+    });
+    expect(recording.catalogId).toBe("SC-2026-002");
   });
 });

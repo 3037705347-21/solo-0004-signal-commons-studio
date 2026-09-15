@@ -1,6 +1,7 @@
 import type {
   Recording,
   IssueStatus,
+  ReleaseRecord,
   RoutePreferences,
   QualityIssue,
   StudyState,
@@ -30,5 +31,5 @@ export type StudyAction =
       at?: Date;
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
-  | { type: "project/readiness"; ready: boolean; checkedAt: string }
+  | { type: "project/readiness"; release: ReleaseRecord }
   | { type: "workspace/reset"; state: StudyState };

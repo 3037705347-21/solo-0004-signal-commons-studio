@@ -13,6 +13,22 @@ const clipsFor = (site: Site, recordings: Recording[]) =>
     .map((id) => recordings.find((recording) => recording.id === id))
     .filter((recording): recording is Recording => Boolean(recording));
 
+function sensitiveFinding(
+  recording: Recording,
+  site: Site,
+): ConstraintFinding | null {
+  if (recording.sensitivity !== "sensitive" || site.quietSpace) return null;
+  return {
+    id: `quiet-${recording.id}-${site.id}`,
+    type: "warning",
+    title: "Sensitive clip needs quiet playback",
+    detail:
+      "Choose a quiet site or document the playback plan before publishing.",
+    siteId: site.id,
+    recordingId: recording.id,
+  };
+}
+
 export function canPlaceRecording(
   recording: Recording,
   site: Site,
@@ -40,16 +56,8 @@ export function canPlaceRecording(
       siteId: site.id,
       recordingId: recording.id,
     });
-  if (recording.sensitivity === "sensitive" && !site.quietSpace)
-    findings.push({
-      id: `quiet-${recording.id}-${site.id}`,
-      type: "warning",
-      title: "Sensitive clip needs quiet playback",
-      detail:
-        "Choose a quiet site or document the playback plan before publishing.",
-      siteId: site.id,
-      recordingId: recording.id,
-    });
+  const sensitivity = sensitiveFinding(recording, site);
+  if (sensitivity) findings.push(sensitivity);
   return findings;
 }
 
@@ -73,9 +81,17 @@ export function analyzeRoute(
         ? durationSeconds / site.maxDurationSeconds
         : 0;
       const clipUtilization = site.maxClips ? clips.length / site.maxClips : 0;
-      const siteFindings = clips.flatMap((clip, index) =>
-        canPlaceRecording(clip, site, clips.slice(0, index)),
-      );
+      const siteFindings = clips
+        .map((clip) => sensitiveFinding(clip, site))
+        .filter((finding): finding is ConstraintFinding => Boolean(finding));
+      if (clips.length > site.maxClips)
+        siteFindings.push({
+          id: `clip-limit-${site.id}`,
+          type: "error",
+          title: "Clip limit exceeded",
+          detail: `${clips.length} clips are placed against a limit of ${site.maxClips}.`,
+          siteId: site.id,
+        });
       if (utilization > 1)
         siteFindings.push({
           id: `duration-${site.id}`,
@@ -84,7 +100,7 @@ export function analyzeRoute(
           detail: `${Math.ceil(durationSeconds / 60)} minutes are planned against ${Math.round(site.maxDurationSeconds / 60)} minutes.`,
           siteId: site.id,
         });
-      if (utilization >= 0.85 && utilization <= 1)
+      if (utilization >= 0.8 && utilization <= 1)
         siteFindings.push({
           id: `pressure-${site.id}`,
           type: "warning",
@@ -122,6 +138,9 @@ export function analyzeRoute(
   const roleCoverage =
     new Set(placed.map((recording) => recording.signalRole)).size /
     ROLES.length;
+  const uniqueFindings = Array.from(
+    new Map(findings.map((finding) => [finding.id, finding])).values(),
+  );
   return {
     totalDurationSeconds: analyses.reduce(
       (sum, site) => sum + site.durationSeconds,
@@ -135,11 +154,13 @@ export function analyzeRoute(
       : 1,
     roleCoverage,
     sites: analyses,
-    findings,
-    blockingCount: findings.filter((finding) => finding.type === "error")
-      .length,
-    warningCount: findings.filter((finding) => finding.type === "warning")
-      .length,
+    findings: uniqueFindings,
+    blockingCount: uniqueFindings.filter(
+      (finding) => finding.type === "error",
+    ).length,
+    warningCount: uniqueFindings.filter(
+      (finding) => finding.type === "warning",
+    ).length,
   };
 }
 

@@ -1,10 +1,12 @@
 import type {
   QualityIssue,
   ReleaseResult,
+  ReleaseRecord,
   RouteAnalysis,
   Snapshot,
   StudyState,
 } from "./models";
+import { releaseFingerprint } from "./releaseIdentity";
 export function evaluateRelease(
   state: StudyState,
   analysis: RouteAnalysis,
@@ -70,13 +72,16 @@ export function buildReleaseSnapshot(
     state.recordings.map((recording) => [recording.id, recording]),
   );
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: readiness.checkedAt,
+    revision: state.revision,
+    fingerprint: releaseFingerprint(state),
     project: {
       ...state.project,
       stage: "ready",
       lastReadinessCheck: readiness.checkedAt,
     },
+    preferences: state.preferences,
     summary: {
       recordingCount: state.recordings.length,
       siteCount: state.sites.length,
@@ -99,6 +104,35 @@ export function buildReleaseSnapshot(
     ),
   };
 }
+
+export function createReleaseRecord(
+  state: StudyState,
+  analysis: RouteAnalysis,
+  readiness: ReleaseResult,
+): ReleaseRecord {
+  const snapshot = readiness.ready
+    ? buildReleaseSnapshot(state, analysis, readiness)
+    : undefined;
+  return {
+    status: readiness.ready ? "ready" : "blocked",
+    revision: state.revision,
+    fingerprint: snapshot?.fingerprint ?? releaseFingerprint(state),
+    readiness,
+    snapshot,
+  };
+}
+
+export function isReleaseCurrent(
+  state: StudyState,
+  release: ReleaseRecord | null | undefined,
+): release is ReleaseRecord & { status: "ready"; snapshot: Snapshot } {
+  return (
+    release?.status === "ready" &&
+    Boolean(release.snapshot) &&
+    release.fingerprint === releaseFingerprint(state)
+  );
+}
+
 export function issueProgress(issues: QualityIssue[]): number {
   return issues.length
     ? issues.filter((issue) => issue.status === "resolved").length /

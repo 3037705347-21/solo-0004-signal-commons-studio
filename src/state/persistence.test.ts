@@ -10,7 +10,7 @@ import { createSeedStudy } from "./seed";
 describe("workspace persistence", () => {
   it("falls back to seed state for malformed storage", () => {
     const storage = { getItem: () => "{bad json" } as unknown as Storage;
-    expect(loadStudy(storage).version).toBe(1);
+    expect(loadStudy(storage).version).toBe(2);
   });
   it("round trips a workspace through storage", () => {
     const values = new Map<string, string>();
@@ -29,5 +29,34 @@ describe("workspace persistence", () => {
     expect(loadStudy(storage).project.title).toBe(state.project.title);
     clearWorkspace(storage);
     expect(values.has(STORAGE_KEY)).toBe(false);
+  });
+
+  it("migrates a version 1 workspace into the version 2 state contract", () => {
+    const legacy = createSeedStudy();
+    const raw = JSON.stringify({
+      ...legacy,
+      version: 1,
+      revision: undefined,
+      updatedAt: undefined,
+      auditLog: undefined,
+      release: undefined,
+    });
+    const storage = { getItem: () => raw } as unknown as Storage;
+    const migrated = loadStudy(storage);
+    expect(migrated.version).toBe(2);
+    expect(migrated.revision).toBe(0);
+    expect(migrated.auditLog).toEqual([]);
+    expect(migrated.release).toBeNull();
+  });
+
+  it("rejects structurally valid JSON with invalid nested domain fields", () => {
+    const malformed = createSeedStudy();
+    malformed.recordings[0].audioSpec.durationSeconds = -1;
+    const storage = {
+      getItem: () => JSON.stringify(malformed),
+    } as unknown as Storage;
+    expect(loadStudy(storage).project.title).toBe(
+      createSeedStudy().project.title,
+    );
   });
 });

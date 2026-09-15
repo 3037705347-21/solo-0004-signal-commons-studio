@@ -78,13 +78,26 @@ export interface FieldStudy {
   lastReadinessCheck?: string;
 }
 
+export interface CommandLogEntry {
+  id: string;
+  revision: number;
+  action: string;
+  summary: string;
+  timestamp: string;
+  actor: "local-user" | "system";
+}
+
 export interface StudyState {
-  version: 1;
+  version: 2;
+  revision: number;
+  updatedAt: string;
   project: FieldStudy;
   recordings: Recording[];
   sites: Site[];
   issues: QualityIssue[];
   preferences: RoutePreferences;
+  auditLog: CommandLogEntry[];
+  release: ReleaseRecord | null;
   lastSavedAt?: string;
 }
 
@@ -177,10 +190,21 @@ export interface ListenerProjection {
   recommendations: string[];
 }
 
+export interface ReleaseRecord {
+  status: "ready" | "blocked" | "stale";
+  revision: number;
+  fingerprint: string;
+  readiness: ReleaseResult;
+  snapshot?: Snapshot;
+}
+
 export interface Snapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: string;
+  revision: number;
+  fingerprint: string;
   project: FieldStudy;
+  preferences: RoutePreferences;
   summary: {
     recordingCount: number;
     siteCount: number;

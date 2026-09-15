@@ -34,7 +34,10 @@ import type {
   IssueStatus,
   QualityIssue,
 } from "../../domain/models";
-import { evaluateRelease } from "../../domain/releaseRules";
+import {
+  evaluateRelease,
+  isReleaseCurrent,
+} from "../../domain/releaseRules";
 import {
   buildSiteChecklist,
   serializeSiteChecklistCsv,
@@ -66,9 +69,12 @@ export function QualityPage() {
   const [reviewUi, setReviewUi] = useState<ReviewUiState>(() => loadReviewUi());
   const [showModal, setShowModal] = useState(false);
   const [readiness, setReadiness] = useState(() =>
-    evaluateRelease(state, analyzeRoute(state.recordings, state.sites)),
+    state.release?.readiness ??
+      evaluateRelease(state, analyzeRoute(state.recordings, state.sites)),
   );
   const [toast, setToast] = useState<string | null>(null);
+  const releaseCurrent = isReleaseCurrent(state, state.release);
+  const exportReady = readiness.ready && releaseCurrent;
 
   useEffect(() => {
     saveReviewUi(reviewUi);
@@ -162,10 +168,10 @@ export function QualityPage() {
         }
       />
       <section
-        className={`readiness-card ${readiness.ready ? "ready" : "blocked"}`}
+        className={`readiness-card ${exportReady ? "ready" : "blocked"}`}
       >
         <div className="readiness-icon">
-          {readiness.ready ? (
+          {exportReady ? (
             <CheckCircle2 size={28} />
           ) : (
             <ShieldAlert size={28} />
@@ -177,12 +183,14 @@ export function QualityPage() {
             {readiness.checkedAt ? formatDate(readiness.checkedAt) : "not run"}
           </div>
           <h2>
-            {readiness.ready ? "Ready to share" : "Still needs attention"}
+            {exportReady ? "Ready to share" : "Still needs attention"}
           </h2>
           <p>
-            {readiness.ready
+            {exportReady
               ? "The route and review desk have no blocking conditions."
-              : `${readiness.blockers.length} blocking condition${readiness.blockers.length === 1 ? "" : "s"} prevent this plan from being marked ready.`}
+              : readiness.ready
+                ? "The study changed after the last successful check. Run it again before exporting."
+                : `${readiness.blockers.length} blocking condition${readiness.blockers.length === 1 ? "" : "s"} prevent this plan from being marked ready.`}
           </p>
         </div>
         <div className="readiness-score">
@@ -190,7 +198,7 @@ export function QualityPage() {
           <span>readiness score</span>
         </div>
         <div className="readiness-actions">
-          {readiness.ready ? (
+          {exportReady ? (
             <Button
               variant="primary"
               icon={<Download size={16} />}
@@ -209,10 +217,13 @@ export function QualityPage() {
           )}
         </div>
       </section>
-      {!readiness.ready && (
+      {!exportReady && (
         <section className="blocker-list">
           <div className="eyebrow">WHAT IS BLOCKING</div>
-          {readiness.blockers.map((blocker) => (
+          {(readiness.blockers.length
+            ? readiness.blockers
+            : ["Re-run the readiness check for the current study revision."]
+          ).map((blocker) => (
             <div className="blocker-row" key={blocker}>
               <XCircle size={16} />
               <span>{blocker}</span>

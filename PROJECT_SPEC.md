@@ -45,13 +45,17 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 ## State and rules
 
 - Study state transitions are `draft -> review -> ready`; a blocking change regresses a ready study to `review`.
+- Persisted state uses an explicit schema version, a monotonically increasing content revision, and a bounded command audit log.
+- Version 1 browser data is migrated into the current schema; nested invalid records are rejected and dangling or duplicate route references are repaired during startup validation.
 - Recording catalogue IDs are normalized and unique.
 - Every recording must have positive sample rate, duration, and a valid channels or bit depth value.
 - A site warns above 80% of listening capacity and blocks above 100%.
+- Placement commands enforce site clip and duration limits before changing route state.
 - Sensitive clips cannot enter a quiet-playback site without review.
 - Featured clips must be assigned to a listening site before release.
 - Arrival, texture, voice, and departure signals must all be represented in the route before release.
 - Critical consent or editorial findings block release until resolved.
+- A successful readiness check freezes a revision, deterministic content fingerprint, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
 
 ## Modules and dependency direction
@@ -72,12 +76,14 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Local persistence key: `signal-commons.workspace.v1`.
 - JSON snapshot download: `signal-commons-snapshot-<date>.json`.
 - Field checklist download: `signal-commons-route-checklist-<site>-<date>.csv`.
+- JSON snapshots use schema version 2 and include the frozen content revision, fingerprint, planning preferences, route summary, and unresolved findings.
 
 ## Validation plan
 
 - TypeScript compilation and Vite production build.
-- Vitest tests for recording validation, route constraints, release rules, site checklists, review transitions, and persistence.
+- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, and versioned persistence.
 - Playwright browser checks for the five user-facing workflows.
+- Playwright checks that invalid capacity placements are rejected before route state changes.
 - Generic project audit verifies source scale, manifest consistency, and every declared workflow command.
 
 ## Intentionally omitted

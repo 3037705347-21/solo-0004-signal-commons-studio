@@ -18,19 +18,6 @@ const ISSUE_STATUSES: Array<IssueStatus | "all"> = [
   "resolved",
 ];
 
-function isStudyState(value: unknown): value is StudyState {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<StudyState>;
-  return (
-    candidate.version === 1 &&
-    Boolean(candidate.project) &&
-    Array.isArray(candidate.recordings) &&
-    Array.isArray(candidate.sites) &&
-    Array.isArray(candidate.issues) &&
-    Boolean(candidate.preferences)
-  );
-}
-
 export function loadStudy(
   storage: Pick<Storage, "getItem"> = localStorage,
 ): StudyState {
@@ -39,9 +26,7 @@ export function loadStudy(
     if (!raw) return createSeedStudy();
     const parsed: unknown = JSON.parse(raw);
     const migrated = migrateWorkspace(parsed);
-    return migrated && isStudyState(migrated)
-      ? validateReferences(migrated)
-      : createSeedStudy();
+    return migrated ? validateReferences(migrated) : createSeedStudy();
   } catch {
     return createSeedStudy();
   }
