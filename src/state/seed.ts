@@ -269,7 +269,7 @@ const sites: Site[] = [
   },
 ];
 export function createSeedStudy(): StudyState {
-  return {
+  return structuredClone({
     version: 2,
     revision: 0,
     updatedAt: stamp,
@@ -314,5 +314,5 @@ export function createSeedStudy(): StudyState {
     preferences: { pace: "steady", accessPriority: 70, listenerCount: 6 },
     auditLog: [],
     release: null,
-  };
+  });
 }

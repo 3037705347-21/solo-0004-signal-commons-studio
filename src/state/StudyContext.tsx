@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -30,8 +31,9 @@ import type {
   StudyState,
 } from "../domain/models";
 import { workspaceReducer } from "./reducer";
-import { loadStudy, saveStudy } from "./persistence";
+import { loadStudy, saveStudy, STORAGE_KEY } from "./persistence";
 import { createSeedStudy } from "./seed";
+import type { CommandMeta, StudyAction } from "./actions";
 
 interface CommandResult<T = undefined> {
   ok: boolean;
@@ -72,11 +74,44 @@ export function StudyProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(workspaceReducer, undefined, () =>
     loadStudy(),
   );
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const originId = useRef(createId("tab")).current;
   const [storageHealthy, setStorageHealthy] = useState(true);
 
   useEffect(() => {
     setStorageHealthy(saveStudy(state));
   }, [state]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY) return;
+      const incoming = loadStudy();
+      const current = stateRef.current;
+      if (
+        incoming.revision < current.revision ||
+        (incoming.revision === current.revision &&
+          incoming.updatedAt === current.updatedAt)
+      )
+        return;
+      dispatch({ type: "workspace/sync", state: incoming });
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const withCommandMeta = useCallback(
+    (action: StudyAction): StudyAction => {
+      const meta: CommandMeta = {
+        commandId: createId("command"),
+        expectedRevision: state.revision,
+        originId,
+        issuedAt: new Date().toISOString(),
+      };
+      return { ...action, meta };
+    },
+    [originId, state.revision],
+  );
 
   const upsertRecording = useCallback(
     (draft: RecordingDraft, existing?: Recording): CommandResult<Recording> => {
@@ -95,10 +130,10 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
       const recording = recordingFromDraft(draft, existing);
-      dispatch({ type: "recording/upsert", recording });
+      dispatch(withCommandMeta({ type: "recording/upsert", recording }));
       return { ok: true, value: recording };
     },
-    [state.recordings],
+    [state.recordings, withCommandMeta],
   );
 
   const removeRecording = useCallback(
@@ -108,16 +143,18 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       );
       if (!recording)
         return { ok: false, message: "The selected clip no longer exists." };
-      dispatch({ type: "recording/remove", recordingId });
+      dispatch(withCommandMeta({ type: "recording/remove", recordingId }));
       return { ok: true };
     },
-    [state.recordings],
+    [state.recordings, withCommandMeta],
   );
 
   const assignRecording = useCallback(
     (recordingId: string, siteId: string): CommandResult => {
       try {
-        dispatch({ type: "placement/assign", recordingId, siteId });
+        dispatch(
+          withCommandMeta({ type: "placement/assign", recordingId, siteId }),
+        );
         return { ok: true };
       } catch (error) {
         return {
@@ -129,17 +166,24 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [],
+    [withCommandMeta],
   );
 
   const removePlacement = useCallback((recordingId: string) => {
-    dispatch({ type: "placement/remove", recordingId });
-  }, []);
+    dispatch(withCommandMeta({ type: "placement/remove", recordingId }));
+  }, [withCommandMeta]);
 
   const reorderRecording = useCallback(
     (siteId: string, recordingId: string, direction: -1 | 1): CommandResult => {
       try {
-        dispatch({ type: "placement/reorder", siteId, recordingId, direction });
+        dispatch(
+          withCommandMeta({
+            type: "placement/reorder",
+            siteId,
+            recordingId,
+            direction,
+          }),
+        );
         return { ok: true };
       } catch (error) {
         return {
@@ -151,7 +195,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [],
+    [withCommandMeta],
   );
 
   const addIssue = useCallback((draft: IssueDraft): CommandResult => {
@@ -165,23 +209,25 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     if (!draft.owner.trim())
       return { ok: false, errors: { owner: "Assign an owner." } };
     const now = new Date().toISOString();
-    dispatch({
-      type: "issue/add",
-      issue: {
-        id: createId("issue"),
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        severity: draft.severity,
-        status: "open",
-        owner: draft.owner.trim(),
-        siteId: draft.siteId || undefined,
-        recordingId: draft.recordingId || undefined,
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
+    dispatch(
+      withCommandMeta({
+        type: "issue/add",
+        issue: {
+          id: createId("issue"),
+          title: draft.title.trim(),
+          description: draft.description.trim(),
+          severity: draft.severity,
+          status: "open",
+          owner: draft.owner.trim(),
+          siteId: draft.siteId || undefined,
+          recordingId: draft.recordingId || undefined,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
     return { ok: true };
-  }, []);
+  }, [withCommandMeta]);
 
   const transitionQualityIssue = useCallback(
     (issueId: string, status: IssueStatus): CommandResult => {
@@ -192,7 +238,9 @@ export function StudyProvider({ children }: { children: ReactNode }) {
           message: "The selected review finding no longer exists.",
         };
       try {
-        dispatch({ type: "issue/transition", issueId, status });
+        dispatch(
+          withCommandMeta({ type: "issue/transition", issueId, status }),
+        );
         return { ok: true };
       } catch (error) {
         return {
@@ -204,22 +252,24 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [state.issues],
+    [state.issues, withCommandMeta],
   );
 
   const updatePreferences = useCallback((preferences: RoutePreferences) => {
-    dispatch({ type: "preferences/update", preferences });
-  }, []);
+    dispatch(withCommandMeta({ type: "preferences/update", preferences }));
+  }, [withCommandMeta]);
 
   const checkReadiness = useCallback(() => {
     const analysis = analyzeRoute(state.recordings, state.sites);
     const result = evaluateRelease(state, analysis);
-    dispatch({
-      type: "project/readiness",
-      release: createReleaseRecord(state, analysis, result),
-    });
+    dispatch(
+      withCommandMeta({
+        type: "project/readiness",
+        release: createReleaseRecord(state, analysis, result),
+      }),
+    );
     return result;
-  }, [state]);
+  }, [state, withCommandMeta]);
 
   const createSnapshot = useCallback((): CommandResult<Snapshot> => {
     if (!isReleaseCurrent(state, state.release))
@@ -236,8 +286,14 @@ export function StudyProvider({ children }: { children: ReactNode }) {
   }, [state]);
 
   const resetStudy = useCallback(
-    () => dispatch({ type: "workspace/reset", state: createSeedStudy() }),
-    [],
+    () =>
+      dispatch(
+        withCommandMeta({
+          type: "workspace/reset",
+          state: createSeedStudy(),
+        }),
+      ),
+    [withCommandMeta],
   );
 
   const value = useMemo<StudyContextValue>(

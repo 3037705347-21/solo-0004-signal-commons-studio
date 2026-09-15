@@ -3,7 +3,15 @@ import { createSeedStudy } from "./seed";
 import { migrateWorkspace, validateReferences } from "./migrations";
 
 export const STORAGE_KEY = "signal-commons.workspace.v1";
+export const STORAGE_BACKUP_KEY = "signal-commons.workspace.backup.v1";
 export const REVIEW_UI_KEY = "signal-commons.review-ui.v1";
+const STORAGE_ENVELOPE_VERSION = 1;
+
+interface StorageEnvelope {
+  storageVersion: typeof STORAGE_ENVELOPE_VERSION;
+  checksum: string;
+  stateJson: string;
+}
 
 export interface ReviewUiState {
   siteId: string;
@@ -18,15 +26,49 @@ const ISSUE_STATUSES: Array<IssueStatus | "all"> = [
   "resolved",
 ];
 
+function fnv1a(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function readStoredStudy(raw: string | null): StudyState | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      (parsed as Partial<StorageEnvelope>).storageVersion ===
+        STORAGE_ENVELOPE_VERSION
+    ) {
+      const envelope = parsed as Partial<StorageEnvelope>;
+      if (
+        typeof envelope.stateJson !== "string" ||
+        typeof envelope.checksum !== "string" ||
+        fnv1a(envelope.stateJson) !== envelope.checksum
+      )
+        return null;
+      return migrateWorkspace(JSON.parse(envelope.stateJson));
+    }
+    return migrateWorkspace(parsed);
+  } catch {
+    return null;
+  }
+}
+
 export function loadStudy(
   storage: Pick<Storage, "getItem"> = localStorage,
 ): StudyState {
   try {
-    const raw = storage.getItem(STORAGE_KEY);
-    if (!raw) return createSeedStudy();
-    const parsed: unknown = JSON.parse(raw);
-    const migrated = migrateWorkspace(parsed);
-    return migrated ? validateReferences(migrated) : createSeedStudy();
+    const primary = readStoredStudy(storage.getItem(STORAGE_KEY));
+    if (primary) return validateReferences(primary);
+    const backup = readStoredStudy(storage.getItem(STORAGE_BACKUP_KEY));
+    return backup ? validateReferences(backup) : createSeedStudy();
   } catch {
     return createSeedStudy();
   }
@@ -34,10 +76,18 @@ export function loadStudy(
 
 export function saveStudy(
   state: StudyState,
-  storage: Pick<Storage, "setItem"> = localStorage,
+  storage: Pick<Storage, "getItem" | "setItem"> = localStorage,
 ): boolean {
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const previous = storage.getItem(STORAGE_KEY);
+    if (previous) storage.setItem(STORAGE_BACKUP_KEY, previous);
+    const stateJson = JSON.stringify(state);
+    const envelope: StorageEnvelope = {
+      storageVersion: STORAGE_ENVELOPE_VERSION,
+      checksum: fnv1a(stateJson),
+      stateJson,
+    };
+    storage.setItem(STORAGE_KEY, JSON.stringify(envelope));
     return true;
   } catch {
     return false;
@@ -48,6 +98,7 @@ export function clearWorkspace(
   storage: Pick<Storage, "removeItem"> = localStorage,
 ): void {
   storage.removeItem(STORAGE_KEY);
+  storage.removeItem(STORAGE_BACKUP_KEY);
 }
 
 export function loadReviewUi(

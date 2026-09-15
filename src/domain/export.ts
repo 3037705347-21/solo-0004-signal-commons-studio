@@ -15,6 +15,8 @@ export function parseSnapshot(raw: string): Snapshot | null {
     const candidate = value as Partial<Snapshot>;
     if (
       candidate.schemaVersion !== 2 ||
+      typeof candidate.releaseId !== "string" ||
+      !Number.isInteger(candidate.releaseSequence) ||
       !candidate.project ||
       !candidate.preferences ||
       !candidate.summary ||

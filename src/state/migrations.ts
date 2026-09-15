@@ -136,9 +136,9 @@ function isProject(value: unknown): value is StudyState["project"] {
   );
 }
 
-function isAuditEntry(value: unknown): value is CommandLogEntry {
-  if (!isRecord(value)) return false;
-  return (
+function migrateAuditEntry(value: unknown): CommandLogEntry | null {
+  if (!isRecord(value)) return null;
+  if (
     isNonEmptyString(value.id) &&
     Number.isInteger(value.revision) &&
     Number(value.revision) >= 0 &&
@@ -146,7 +146,23 @@ function isAuditEntry(value: unknown): value is CommandLogEntry {
     isNonEmptyString(value.summary) &&
     isNonEmptyString(value.timestamp) &&
     (value.actor === "local-user" || value.actor === "system")
-  );
+  ) {
+    return {
+      id: value.id,
+      commandId: isNonEmptyString(value.commandId) ? value.commandId : value.id,
+      originId: isNonEmptyString(value.originId) ? value.originId : "legacy",
+      revision: Number(value.revision),
+      expectedRevision: Number.isInteger(value.expectedRevision)
+        ? Number(value.expectedRevision)
+        : null,
+      status: value.status === "rejected" ? "rejected" : "applied",
+      action: value.action,
+      summary: value.summary,
+      timestamp: value.timestamp,
+      actor: value.actor,
+    };
+  }
+  return null;
 }
 
 function isReleaseResult(value: unknown): value is ReleaseResult {
@@ -198,15 +214,41 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
     return null;
   if (typeof value.fingerprint !== "string" || !value.fingerprint) return null;
   if (!isReleaseResult(value.readiness)) return null;
-  const snapshot =
-    value.snapshot === undefined ? undefined : isSnapshot(value.snapshot)
-      ? value.snapshot
+  const releaseId = isNonEmptyString(value.id)
+    ? value.id
+    : `release-legacy-${Number(value.revision)}`;
+  const sequence =
+    Number.isInteger(value.sequence) && Number(value.sequence) > 0
+      ? Number(value.sequence)
+      : 1;
+  const snapshot = isSnapshot(value.snapshot)
+    ? {
+        ...value.snapshot,
+        releaseId: isNonEmptyString(value.snapshot.releaseId)
+          ? value.snapshot.releaseId
+          : releaseId,
+        releaseSequence:
+          Number.isInteger(value.snapshot.releaseSequence) &&
+          Number(value.snapshot.releaseSequence) > 0
+            ? Number(value.snapshot.releaseSequence)
+            : sequence,
+      }
+    : value.snapshot === undefined
+      ? undefined
       : null;
   if (snapshot === null || (value.status === "ready" && !snapshot)) return null;
   return {
+    id: releaseId,
+    sequence,
+    createdAt: isNonEmptyString(value.createdAt)
+      ? value.createdAt
+      : value.readiness.checkedAt,
     status: value.status,
     revision: Number(value.revision),
     fingerprint: value.fingerprint,
+    supersedes: isNonEmptyString(value.supersedes)
+      ? value.supersedes
+      : undefined,
     readiness: value.readiness,
     snapshot,
   };
@@ -258,7 +300,9 @@ export function migrateWorkspace(value: unknown): StudyState | null {
   if (!Number.isInteger(value.revision) || Number(value.revision) < 0)
     return null;
   const auditLog = Array.isArray(value.auditLog)
-    ? value.auditLog.filter(isAuditEntry)
+    ? value.auditLog
+        .map(migrateAuditEntry)
+        .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
   return {
     version: 2,

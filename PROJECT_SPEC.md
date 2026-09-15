@@ -46,7 +46,10 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 
 - Study state transitions are `draft -> review -> ready`; a blocking change regresses a ready study to `review`.
 - Persisted state uses an explicit schema version, a monotonically increasing content revision, and a bounded command audit log.
+- State-changing commands carry a command ID, origin tab, issue time, and expected revision. Repeated command IDs are idempotent, while stale revisions are rejected and recorded without changing content.
+- Browser tabs synchronize committed workspace records through storage events and reload the checksummed primary or backup record.
 - Version 1 browser data is migrated into the current schema; nested invalid records are rejected and dangling or duplicate route references are repaired during startup validation.
+- Persistence writes a checksummed record plus the previous primary record as a backup. A corrupt or incomplete primary record falls back to the last valid backup before using sample data.
 - Recording catalogue IDs are normalized and unique.
 - Every recording must have positive sample rate, duration, and a valid channels or bit depth value.
 - A site warns above 80% of listening capacity and blocks above 100%.
@@ -56,13 +59,14 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Arrival, texture, voice, and departure signals must all be represented in the route before release.
 - Critical consent or editorial findings block release until resolved.
 - A successful readiness check freezes a revision, deterministic content fingerprint, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
+- Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
 
 ## Modules and dependency direction
 
 - `app`: application composition, routing, shell, and page entry points.
 - `domain`: entities, validation, state transitions, route analysis, release rules, checklist serialization, and scenario projections.
-- `state`: reducer, commands, persistence adapter, migrations, seed study, and selectors.
+- `state`: revision-guarded commands, reducer, audit log, cross-tab synchronization, checksummed persistence and recovery, migrations, seed study, and selectors.
 - `features/library`: signal library discovery, filtering, creation, and editing.
 - `features/route`: listening-site planning, placement transitions, and constraint feedback.
 - `features/quality`: evidence finding lifecycle, field checklist export, release gate, and snapshot export.
@@ -74,6 +78,7 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Browser routes: `/library`, `/route`, `/quality`, and `/scenarios`.
 - `StudyProvider` exposes typed commands and derived state to pages.
 - Local persistence key: `signal-commons.workspace.v1`.
+- Recovery backup key: `signal-commons.workspace.backup.v1`.
 - JSON snapshot download: `signal-commons-snapshot-<date>.json`.
 - Field checklist download: `signal-commons-route-checklist-<site>-<date>.csv`.
 - JSON snapshots use schema version 2 and include the frozen content revision, fingerprint, planning preferences, route summary, and unresolved findings.
@@ -84,6 +89,7 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, and versioned persistence.
 - Playwright browser checks for the five user-facing workflows.
 - Playwright checks that invalid capacity placements are rejected before route state changes.
+- Playwright checks that committed workspace changes propagate to a second browser tab.
 - Generic project audit verifies source scale, manifest consistency, and every declared workflow command.
 
 ## Intentionally omitted

@@ -81,4 +81,74 @@ describe("workspace reducer boundaries", () => {
       action: "preferences/update",
     });
   });
+
+  it("applies a command id only once", () => {
+    const state = createSeedStudy();
+    const command = {
+      type: "preferences/update" as const,
+      preferences: { ...state.preferences, listenerCount: 8 },
+      meta: {
+        commandId: "command-once",
+        expectedRevision: state.revision,
+        originId: "tab-a",
+        issuedAt: "2026-09-10T10:00:00.000Z",
+      },
+    };
+    const applied = workspaceReducer(state, command);
+    const duplicate = workspaceReducer(applied, command);
+
+    expect(applied.revision).toBe(1);
+    expect(duplicate.revision).toBe(applied.revision);
+    expect(
+      applied.auditLog.filter((entry) => entry.commandId === "command-once"),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a command based on a stale revision without mutating content", () => {
+    const state = createSeedStudy();
+    const rejected = workspaceReducer(state, {
+      type: "preferences/update",
+      preferences: { ...state.preferences, listenerCount: 8 },
+      meta: {
+        commandId: "command-stale",
+        expectedRevision: 99,
+        originId: "tab-b",
+        issuedAt: "2026-09-10T10:00:00.000Z",
+      },
+    });
+
+    expect(rejected).toMatchObject({
+      revision: state.revision,
+      preferences: state.preferences,
+    });
+    expect(rejected.auditLog.at(-1)).toMatchObject({
+      commandId: "command-stale",
+      expectedRevision: 99,
+      status: "rejected",
+    });
+  });
+
+  it("links each frozen release to its predecessor", () => {
+    const state = createSeedStudy();
+    const readiness: ReleaseResult = {
+      ready: true,
+      score: 100,
+      blockers: [],
+      cautions: [],
+      checkedAt: "2026-09-10T10:00:00.000Z",
+    };
+    const analysis = analyzeRoute(state.recordings, state.sites);
+    const first = createReleaseRecord(state, analysis, readiness);
+    const second = createReleaseRecord(
+      { ...state, release: first },
+      analysis,
+      { ...readiness, checkedAt: "2026-09-11T10:00:00.000Z" },
+    );
+
+    expect(first.sequence).toBe(1);
+    expect(second.sequence).toBe(2);
+    expect(second.supersedes).toBe(first.id);
+    expect(second.snapshot?.releaseId).toBe(second.id);
+    expect(second.snapshot?.releaseSequence).toBe(2);
+  });
 });

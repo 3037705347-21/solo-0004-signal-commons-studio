@@ -3,6 +3,7 @@ import {
   clearWorkspace,
   loadStudy,
   saveStudy,
+  STORAGE_BACKUP_KEY,
   STORAGE_KEY,
 } from "./persistence";
 import { createSeedStudy } from "./seed";
@@ -58,5 +59,34 @@ describe("workspace persistence", () => {
     expect(loadStudy(storage).project.title).toBe(
       createSeedStudy().project.title,
     );
+  });
+
+  it("recovers the previous checksummed state when the primary record is damaged", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+    } as unknown as Storage;
+    const first = {
+      ...createSeedStudy(),
+      project: { ...createSeedStudy().project, title: "Recovered baseline" },
+    };
+    const second = {
+      ...first,
+      project: { ...first.project, title: "Current baseline" },
+    };
+
+    expect(saveStudy(first, storage)).toBe(true);
+    expect(saveStudy(second, storage)).toBe(true);
+    expect(values.has(STORAGE_BACKUP_KEY)).toBe(true);
+    expect(values.get(STORAGE_BACKUP_KEY)).toContain("Recovered baseline");
+    values.set(STORAGE_KEY, "{broken primary");
+
+    expect(loadStudy(storage).project.title).toBe("Recovered baseline");
   });
 });

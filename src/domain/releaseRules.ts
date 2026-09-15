@@ -6,6 +6,7 @@ import type {
   Snapshot,
   StudyState,
 } from "./models";
+import { createId } from "./ids";
 import { releaseFingerprint } from "./releaseIdentity";
 export function evaluateRelease(
   state: StudyState,
@@ -63,6 +64,8 @@ export function buildReleaseSnapshot(
   state: StudyState,
   analysis: RouteAnalysis,
   readiness: ReleaseResult,
+  releaseId: string,
+  releaseSequence: number,
 ): Snapshot {
   if (!readiness.ready)
     throw new Error(
@@ -74,6 +77,8 @@ export function buildReleaseSnapshot(
   return {
     schemaVersion: 2,
     generatedAt: readiness.checkedAt,
+    releaseId,
+    releaseSequence,
     revision: state.revision,
     fingerprint: releaseFingerprint(state),
     project: {
@@ -110,13 +115,25 @@ export function createReleaseRecord(
   analysis: RouteAnalysis,
   readiness: ReleaseResult,
 ): ReleaseRecord {
+  const releaseId = createId("release");
+  const releaseSequence = (state.release?.sequence ?? 0) + 1;
   const snapshot = readiness.ready
-    ? buildReleaseSnapshot(state, analysis, readiness)
+    ? buildReleaseSnapshot(
+        state,
+        analysis,
+        readiness,
+        releaseId,
+        releaseSequence,
+      )
     : undefined;
   return {
+    id: releaseId,
+    sequence: releaseSequence,
+    createdAt: readiness.checkedAt,
     status: readiness.ready ? "ready" : "blocked",
     revision: state.revision,
     fingerprint: snapshot?.fingerprint ?? releaseFingerprint(state),
+    supersedes: state.release?.id,
     readiness,
     snapshot,
   };

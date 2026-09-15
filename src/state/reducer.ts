@@ -11,6 +11,21 @@ import type { StudyAction } from "./actions";
 
 const AUDIT_LOG_LIMIT = 80;
 
+function commandDisposition(
+  state: StudyState,
+  action: StudyAction,
+): "apply" | "duplicate" | "conflict" {
+  const meta = action.meta;
+  if (!meta) return "apply";
+  if (
+    state.auditLog.some(
+      (entry) => entry.commandId === meta.commandId,
+    )
+  )
+    return "duplicate";
+  return meta.expectedRevision === state.revision ? "apply" : "conflict";
+}
+
 function finalizeAction(
   state: StudyState,
   action: StudyAction,
@@ -33,6 +48,32 @@ function finalizeAction(
   };
 }
 
+function rejectCommand(
+  state: StudyState,
+  action: StudyAction,
+  at = new Date(),
+): StudyState {
+  const timestamp = at.toISOString();
+  return {
+    ...state,
+    lastSavedAt: timestamp,
+    auditLog: compactLog(
+      [
+        ...state.auditLog,
+        makeLogEntry(
+          action,
+          action.meta?.commandId ?? createId("event"),
+          state.revision,
+          at,
+          "system",
+          "rejected",
+        ),
+      ],
+      AUDIT_LOG_LIMIT,
+    ),
+  };
+}
+
 function invalidateRelease(state: StudyState): StudyState {
   if (!state.release || state.release.status === "stale") return state;
   return {
@@ -47,6 +88,9 @@ function mutate(
   next: StudyState,
 ): StudyState {
   if (next === state) return state;
+  const disposition = commandDisposition(state, action);
+  if (disposition === "duplicate") return state;
+  if (disposition === "conflict") return rejectCommand(state, action);
   return finalizeAction(
     invalidateRelease(next),
     action,
@@ -263,6 +307,9 @@ export function workspaceReducer(
         regressReadyProject({ ...state, preferences: action.preferences }),
       );
     case "project/readiness": {
+      const disposition = commandDisposition(state, action);
+      if (disposition === "duplicate") return state;
+      if (disposition === "conflict") return rejectCommand(state, action);
       const staged = applyReadinessStage(
         state,
         action.release.readiness.ready,
@@ -281,6 +328,8 @@ export function workspaceReducer(
       );
     }
     case "workspace/reset":
+      return action.state;
+    case "workspace/sync":
       return action.state;
     default:
       return state;

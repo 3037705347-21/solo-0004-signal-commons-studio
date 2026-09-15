@@ -25,6 +25,8 @@ export function describeAction(action: StudyAction): string {
         : "Returned project to review";
     case "workspace/reset":
       return "Reset workspace to sample plan";
+    case "workspace/sync":
+      return "Synchronized workspace from another tab";
   }
 }
 
@@ -34,10 +36,15 @@ export function makeLogEntry(
   revision: number,
   at = new Date(),
   actor: CommandLogEntry["actor"] = "local-user",
+  status: CommandLogEntry["status"] = "applied",
 ): CommandLogEntry {
   return {
     id,
+    commandId: action.meta?.commandId ?? id,
+    originId: action.meta?.originId ?? "local",
     revision,
+    expectedRevision: action.meta?.expectedRevision ?? null,
+    status,
     action: action.type,
     summary: describeAction(action),
     timestamp: at.toISOString(),

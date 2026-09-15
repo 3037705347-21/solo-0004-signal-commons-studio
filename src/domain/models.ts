@@ -80,7 +80,11 @@ export interface FieldStudy {
 
 export interface CommandLogEntry {
   id: string;
+  commandId: string;
+  originId: string;
   revision: number;
+  expectedRevision: number | null;
+  status: "applied" | "rejected";
   action: string;
   summary: string;
   timestamp: string;
@@ -191,9 +195,13 @@ export interface ListenerProjection {
 }
 
 export interface ReleaseRecord {
+  id: string;
+  sequence: number;
+  createdAt: string;
   status: "ready" | "blocked" | "stale";
   revision: number;
   fingerprint: string;
+  supersedes?: string;
   readiness: ReleaseResult;
   snapshot?: Snapshot;
 }
@@ -201,6 +209,8 @@ export interface ReleaseRecord {
 export interface Snapshot {
   schemaVersion: 2;
   generatedAt: string;
+  releaseId: string;
+  releaseSequence: number;
   revision: number;
   fingerprint: string;
   project: FieldStudy;

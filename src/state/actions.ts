@@ -7,7 +7,14 @@ import type {
   StudyState,
 } from "../domain/models";
 
-export type StudyAction =
+export interface CommandMeta {
+  commandId: string;
+  expectedRevision: number;
+  originId: string;
+  issuedAt: string;
+}
+
+type StudyActionPayload =
   | { type: "recording/upsert"; recording: Recording }
   | { type: "recording/remove"; recordingId: string }
   | {
@@ -32,4 +39,7 @@ export type StudyAction =
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
   | { type: "project/readiness"; release: ReleaseRecord }
-  | { type: "workspace/reset"; state: StudyState };
+  | { type: "workspace/reset"; state: StudyState }
+  | { type: "workspace/sync"; state: StudyState };
+
+export type StudyAction = StudyActionPayload & { meta?: CommandMeta };
