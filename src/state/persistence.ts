@@ -1,4 +1,5 @@
 import type { IssueStatus, StudyState } from "../domain/models";
+import { releaseFingerprint } from "../domain/releaseIdentity";
 import { createSeedStudy } from "./seed";
 import { migrateWorkspace, validateReferences } from "./migrations";
 
@@ -61,6 +62,71 @@ function readStoredStudy(raw: string | null): StudyState | null {
   }
 }
 
+/**
+ * Read and migrate the raw primary record without falling back to the backup
+ * or sample study. Concurrent-commit guards use this to inspect what is
+ * actually on disk before writing.
+ */
+export function readStoredPrimary(
+  storage: Pick<Storage, "getItem"> = localStorage,
+): StudyState | null {
+  return readStoredStudy(storage.getItem(STORAGE_KEY));
+}
+
+/** Content identity used to detect equal-revision divergence between tabs. */
+export function storageStateFingerprint(state: StudyState): string {
+  return releaseFingerprint(validateReferences(state));
+}
+
+/**
+ * True when the disk record must win over an in-memory state: a strictly
+ * newer content revision, or the same revision carrying different content
+ * (for example another tab's readiness check). Equal revision and content is
+ * a harmless rewrite, and missing or unreadable disk never blocks a commit.
+ */
+export function diskAheadOf(
+  disk: StudyState | null,
+  state: StudyState,
+): disk is StudyState {
+  if (!disk) return false;
+  if (disk.revision > state.revision) return true;
+  if (disk.revision < state.revision) return false;
+  return storageStateFingerprint(disk) !== storageStateFingerprint(state);
+}
+
+export type CommitResult =
+  | { outcome: "saved" }
+  | { outcome: "quota-error" }
+  | { outcome: "disk-ahead"; disk: StudyState };
+
+/**
+ * Revision-guarded persistence write. The primary record is read one last
+ * time before rotating the backup; if another tab committed in the meantime,
+ * the stale in-memory state is refused and the winner is returned so the
+ * caller can heal its workspace instead of overwriting committed work.
+ */
+export function commitStudy(
+  state: StudyState,
+  storage: Pick<Storage, "getItem" | "setItem"> = localStorage,
+): CommitResult {
+  try {
+    const disk = readStoredPrimary(storage);
+    if (diskAheadOf(disk, state)) return { outcome: "disk-ahead", disk };
+    const previous = storage.getItem(STORAGE_KEY);
+    if (previous) storage.setItem(STORAGE_BACKUP_KEY, previous);
+    const stateJson = JSON.stringify(state);
+    const envelope: StorageEnvelope = {
+      storageVersion: STORAGE_ENVELOPE_VERSION,
+      checksum: fnv1a(stateJson),
+      stateJson,
+    };
+    storage.setItem(STORAGE_KEY, JSON.stringify(envelope));
+    return { outcome: "saved" };
+  } catch {
+    return { outcome: "quota-error" };
+  }
+}
+
 export function loadStudy(
   storage: Pick<Storage, "getItem"> = localStorage,
 ): StudyState {
@@ -78,20 +144,11 @@ export function saveStudy(
   state: StudyState,
   storage: Pick<Storage, "getItem" | "setItem"> = localStorage,
 ): boolean {
-  try {
-    const previous = storage.getItem(STORAGE_KEY);
-    if (previous) storage.setItem(STORAGE_BACKUP_KEY, previous);
-    const stateJson = JSON.stringify(state);
-    const envelope: StorageEnvelope = {
-      storageVersion: STORAGE_ENVELOPE_VERSION,
-      checksum: fnv1a(stateJson),
-      stateJson,
-    };
-    storage.setItem(STORAGE_KEY, JSON.stringify(envelope));
-    return true;
-  } catch {
-    return false;
-  }
+  const result = commitStudy(state, storage);
+  // Callers using the legacy boolean form treat both a successful write and a
+  // refused stale commit as "storage healthy"; only quota failures surface as
+  // unavailable storage. The StudyProvider acts on the structured result.
+  return result.outcome !== "quota-error";
 }
 
 export function clearWorkspace(

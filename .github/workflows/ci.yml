@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    name: Build, unit tests, browser checks, chaos gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check and production build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser smoke suite
+        run: npm run test:e2e
+
+      - name: Chaos drill gate
+        run: npm run drill
+
+      - name: Print drill report
+        if: always()
+        run: npm run drill:report || true
+
+      - name: Upload chaos reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-report
+          path: |
+            chaos-report/
+            test-results/chaos/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -7,25 +7,33 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "test:e2e": "playwright test",
-    "check": "npm run build && npm run test && npm run test:e2e"
+    "test:e2e": "bash scripts/with-browser-libs.sh playwright test",
+    "check": "npm run build && npm run test && npm run test:e2e",
+    "bootstrap:chaos": "bash scripts/bootstrap-chaos.sh",
+    "drill": "bash scripts/with-browser-libs.sh playwright test --config=playwright.chaos.config.ts",
+    "drill:one": "bash scripts/with-browser-libs.sh playwright test --config=playwright.chaos.config.ts --grep",
+    "drill:suite": "bash scripts/with-browser-libs.sh playwright test --config=playwright.chaos.config.ts --grep",
+    "drill:report": "node scripts/print-drill-report.mjs",
+    "gate": "npm run build && npm run test && npm run test:e2e && npm run drill",
+    "clean:drill": "rm -rf chaos-report test-results/chaos"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
+    "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
     "react-router-dom": "latest",
-    "lucide-react": "latest"
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@playwright/test": "latest",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",
+    "@types/node": "^22.20.3",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "jsdom": "latest",
+    "jsdom": "^26.1.0",
     "vitest": "latest"
   }
 }

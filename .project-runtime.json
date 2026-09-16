@@ -11,5 +11,36 @@
     {"workflow_id": "compare-listener-scenarios", "command": "npx playwright test e2e/insights.spec.ts"},
     {"workflow_id": "export-field-checklist", "command": "npx playwright test e2e/checklist.spec.ts"},
     {"workflow_id": "synchronize-workspace-tabs", "command": "npx playwright test e2e/sync.spec.ts"}
-  ]
+  ],
+  "chaos_drill_checks": {
+    "bootstrap_command": "npm run bootstrap:chaos",
+    "full_gate_command": "npm run drill",
+    "single_scenario_command": "npm run drill:one -- <ID>",
+    "single_suite_command": "npm run drill:suite -- @<suite>",
+    "report_command": "npm run drill:report",
+    "cleanup_command": "npm run clean:drill",
+    "report_artifacts": [
+      "chaos-report/chaos-report.json",
+      "chaos-report/chaos-report.md",
+      "chaos-report/artifacts/",
+      "chaos-report/playwright-results.json"
+    ],
+    "suites": [
+      {
+        "id": "concurrency",
+        "tag": "@concurrency",
+        "scenarios": ["CC-01", "CC-02", "CC-03"]
+      },
+      {
+        "id": "recovery",
+        "tag": "@recovery",
+        "scenarios": ["FR-01", "FR-02", "FR-03", "FR-04", "FR-05", "FR-06", "FR-07"]
+      },
+      {
+        "id": "scale",
+        "tag": "@scale",
+        "scenarios": ["LD-01", "LD-02", "LD-03"]
+      }
+    ]
+  }
 }

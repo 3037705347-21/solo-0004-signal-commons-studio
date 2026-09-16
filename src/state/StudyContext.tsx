@@ -31,7 +31,7 @@ import type {
   StudyState,
 } from "../domain/models";
 import { workspaceReducer } from "./reducer";
-import { loadStudy, saveStudy, STORAGE_KEY } from "./persistence";
+import { commitStudy, loadStudy, readStoredPrimary, STORAGE_KEY } from "./persistence";
 import { createSeedStudy } from "./seed";
 import type { CommandMeta, StudyAction } from "./actions";
 
@@ -78,15 +78,31 @@ export function StudyProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
   const originId = useRef(createId("tab")).current;
   const [storageHealthy, setStorageHealthy] = useState(true);
+  const healInProgress = useRef(false);
 
   useEffect(() => {
-    setStorageHealthy(saveStudy(state));
+    const result = commitStudy(state);
+    if (result.outcome === "quota-error") {
+      setStorageHealthy(false);
+      return;
+    }
+    setStorageHealthy(true);
+    if (result.outcome === "disk-ahead" && !healInProgress.current) {
+      // Another tab committed while this tab was stale. Drop the in-memory
+      // branch and adopt the winner so later commands chain from the newest
+      // revision rather than overwriting committed work.
+      healInProgress.current = true;
+      dispatch({ type: "workspace/sync", state: result.disk });
+      window.setTimeout(() => {
+        healInProgress.current = false;
+      }, 0);
+    }
   }, [state]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY) return;
-      const incoming = loadStudy();
+      const incoming = readStoredPrimary() ?? loadStudy();
       const current = stateRef.current;
       if (
         incoming.revision < current.revision ||
