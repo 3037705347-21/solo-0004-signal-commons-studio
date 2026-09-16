@@ -1563,6 +1563,331 @@ strong {
   background: #fff0d3;
   border: 1px solid #ead09c;
 }
+
+/* ---------- Field handoff ---------- */
+.nav-pending-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e0a33d;
+  box-shadow: 0 0 0 3px rgba(224, 163, 61, 0.22);
+  flex: 0 0 auto;
+}
+.handoff-alert {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 11px 12px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: rgba(224, 163, 61, 0.16);
+  border: 1px solid rgba(224, 163, 61, 0.45);
+  color: #f1d9ac;
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-decoration: none;
+}
+.handoff-banner {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 18px 20px;
+  border-radius: 10px;
+  background: #eef4f3;
+  border: 1px solid #c3d9d5;
+  color: var(--teal-dark);
+}
+.handoff-banner svg {
+  margin-top: 2px;
+}
+.handoff-banner h2 {
+  font-size: 15px;
+  margin: 3px 0 4px;
+}
+.handoff-banner p {
+  font-size: 12.5px;
+  color: #4c5b57;
+}
+.handoff-pending {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 12px;
+  background: var(--paper);
+  border: 1.5px solid #e3c27f;
+  box-shadow: 0 2px 14px rgba(189, 131, 49, 0.08);
+}
+.pending-lock {
+  display: none;
+}
+.pending-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.pending-head h2 {
+  font-size: 19px;
+  margin: 4px 0 6px;
+}
+.pending-head p {
+  font-size: 13px;
+  color: var(--muted);
+}
+.pending-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pending-note {
+  margin: 0;
+  padding: 11px 14px;
+  border-left: 3px solid var(--amber);
+  background: #fdf6e8;
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  color: #5d4a22;
+}
+.pending-counts {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #f7f6f0;
+  border: 1px solid var(--line);
+}
+.pending-counts span {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.pending-counts strong {
+  font-size: 17px;
+  color: var(--ink);
+}
+.change-group {
+  display: grid;
+  gap: 8px;
+}
+.change-list,
+.handover-items,
+.provenance-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.change-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  background: #faf9f4;
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+.change-summary {
+  flex: 1;
+  min-width: 0;
+}
+.change-site {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.change-date {
+  color: var(--muted);
+  font: 11px "DM Mono";
+  white-space: nowrap;
+}
+.change-icon-added {
+  color: var(--teal);
+}
+.change-icon-removed {
+  color: var(--red);
+}
+.change-icon-changed {
+  color: var(--amber);
+}
+.handover-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #faf9f4;
+  border: 1px solid var(--line);
+}
+.handover-item svg {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+.handover-item.item-critical {
+  border-left: 3px solid var(--red);
+}
+.handover-item.item-warning {
+  border-left: 3px solid var(--amber);
+}
+.handover-item.item-note {
+  border-left: 3px solid var(--teal);
+}
+.handover-item p {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.pending-signoff {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 18px;
+  padding: 16px;
+  border-radius: 9px;
+  background: #f3f1e8;
+  border: 1px solid var(--line);
+}
+.signoff-copy {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  color: #55574f;
+  line-height: 1.5;
+}
+.signoff-form {
+  display: grid;
+  gap: 10px;
+}
+.signoff-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.handoff-history,
+.provenance-index {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.history-packet {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  background: #fdfcf7;
+}
+.history-summary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  background: none;
+  border: 0;
+  text-align: left;
+}
+.history-summary:hover {
+  background: #f6f4ec;
+}
+.history-main {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+.history-main small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.history-status {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.history-accepted {
+  color: var(--teal);
+  background: #dcefe9;
+}
+.history-declined {
+  color: var(--red);
+  background: #f7e1db;
+}
+.history-pending {
+  color: var(--amber);
+  background: #f8ecd2;
+}
+.history-detail {
+  display: grid;
+  gap: 10px;
+  padding: 4px 15px 15px 57px;
+}
+.history-note {
+  font-size: 13px;
+  color: #5d4a22;
+  background: #fdf6e8;
+  padding: 9px 12px;
+  border-radius: 6px;
+}
+.history-receiver-note {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.provenance-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  background: #faf9f4;
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+.provenance-row small {
+  color: var(--muted);
+  margin-left: 6px;
+}
+.handover-editor {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+.handover-edit-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 130px 150px auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #faf9f4;
+}
+.handover-empty {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+@media (max-width: 720px) {
+  .pending-signoff {
+    grid-template-columns: 1fr;
+  }
+  .handover-edit-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 1000px) {
   .sidebar {
     width: 210px;

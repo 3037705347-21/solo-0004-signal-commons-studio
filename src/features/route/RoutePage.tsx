@@ -46,6 +46,13 @@ export function RoutePage() {
     [state.recordings, state.sites],
   );
   const unplaced = getUnplacedRecordings(state.recordings, state.sites);
+  const remove = (recordingId: string) => {
+    const result = removePlacement(recordingId);
+    if (!result.ok) {
+      setNotice(result.message ?? "Removal failed.");
+      window.setTimeout(() => setNotice(null), 3200);
+    }
+  };
   const place = (recording: Recording, site: Site) => {
     const recordingById = new Map(
       state.recordings.map((candidate) => [candidate.id, candidate]),
@@ -145,7 +152,7 @@ export function RoutePage() {
                   selectedRecording={selectedRecording}
                   onSelect={setSelectedRecording}
                   onPlace={place}
-                  onRemove={removePlacement}
+                  onRemove={remove}
                   onReorder={reorderRecording}
                 />
               ))}

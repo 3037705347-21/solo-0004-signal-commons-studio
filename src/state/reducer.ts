@@ -1,5 +1,10 @@
 import { createId } from "../domain/ids";
 import { canPlaceRecording } from "../domain/routeAnalysis";
+import {
+  decideHandoff,
+  guardMutation,
+  rollbackDeclinedHandoff,
+} from "../domain/handoff";
 import { compactLog, makeLogEntry } from "../domain/studyLog";
 import {
   regressReadyProject,
@@ -80,6 +85,14 @@ function invalidateRelease(state: StudyState): StudyState {
     ...state,
     release: { ...state.release, status: "stale" },
   };
+}
+
+function ensureNotQuarantined(
+  state: StudyState,
+  target: { recordingId?: string; siteId?: string },
+): void {
+  const guard = guardMutation(state, target);
+  if (guard.blocked) throw new Error(guard.reason);
 }
 
 function mutate(
@@ -211,9 +224,13 @@ export function workspaceReducer(
 ): StudyState {
   switch (action.type) {
     case "recording/upsert": {
-      const exists = state.recordings.some(
+      const isNew = !state.recordings.some(
         (recording) => recording.id === action.recording.id,
       );
+      if (!isNew) {
+        ensureNotQuarantined(state, { recordingId: action.recording.id });
+      }
+      const exists = !isNew;
       const recordings = exists
         ? state.recordings.map((recording) =>
             recording.id === action.recording.id ? action.recording : recording,
@@ -226,6 +243,7 @@ export function workspaceReducer(
       );
     }
     case "recording/remove": {
+      ensureNotQuarantined(state, { recordingId: action.recordingId });
       const withoutPlacement = removeRecordingFromSites(
         state,
         action.recordingId,
@@ -244,7 +262,11 @@ export function workspaceReducer(
         }),
       );
     }
-    case "placement/assign":
+    case "placement/assign": {
+      ensureNotQuarantined(state, {
+        recordingId: action.recordingId,
+        siteId: action.siteId,
+      });
       return mutate(
         state,
         action,
@@ -257,7 +279,15 @@ export function workspaceReducer(
           ),
         ),
       );
-    case "placement/remove":
+    }
+    case "placement/remove": {
+      const site = state.sites.find((candidate) =>
+        candidate.recordingIds.includes(action.recordingId),
+      );
+      ensureNotQuarantined(state, {
+        recordingId: action.recordingId,
+        siteId: site?.id,
+      });
       return mutate(
         state,
         action,
@@ -265,7 +295,12 @@ export function workspaceReducer(
           removeRecordingFromSites(state, action.recordingId),
         ),
       );
-    case "placement/reorder":
+    }
+    case "placement/reorder": {
+      ensureNotQuarantined(state, {
+        recordingId: action.recordingId,
+        siteId: action.siteId,
+      });
       return mutate(
         state,
         action,
@@ -278,6 +313,7 @@ export function workspaceReducer(
           ),
         ),
       );
+    }
     case "issue/add":
       return mutate(
         state,
@@ -287,19 +323,29 @@ export function workspaceReducer(
           issues: [action.issue, ...state.issues],
         }),
       );
-    case "issue/transition":
+    case "issue/transition": {
+      const issue = state.issues.find(
+        (candidate) => candidate.id === action.issueId,
+      );
+      if (issue) {
+        ensureNotQuarantined(state, {
+          recordingId: issue.recordingId,
+          siteId: issue.siteId,
+        });
+      }
       return mutate(
         state,
         action,
         regressReadyProject({
           ...state,
-          issues: state.issues.map((issue) =>
-            issue.id === action.issueId
-              ? transitionIssue(issue, action.status, action.at)
-              : issue,
+          issues: state.issues.map((candidate) =>
+            candidate.id === action.issueId
+              ? transitionIssue(candidate, action.status, action.at)
+              : candidate,
           ),
         }),
       );
+    }
     case "preferences/update":
       return mutate(
         state,
@@ -326,6 +372,77 @@ export function workspaceReducer(
         action,
         state.revision,
       );
+    }
+    case "handoff/begin": {
+      if (state.handoffs.some((handoff) => handoff.status === "pending")) {
+        throw new Error(
+          "Finish the current handoff before starting another session.",
+        );
+      }
+      if (state.activeBaseline) {
+        throw new Error(
+          "An offline session is already open. Prepare its handoff first.",
+        );
+      }
+      return mutate(state, action, {
+        ...state,
+        activeBaseline: action.baseline,
+      });
+    }
+    case "handoff/create": {
+      if (state.handoffs.some((handoff) => handoff.status === "pending")) {
+        throw new Error("A handoff packet is already waiting for confirmation.");
+      }
+      const next: StudyState = {
+        ...state,
+        recordings: action.recordings,
+        issues: action.issues,
+        handoffs: [...state.handoffs, action.packet],
+        activeBaseline: null,
+      };
+      return mutate(state, action, regressReadyProject(next));
+    }
+    case "handoff/decide": {
+      const packet = state.handoffs.find(
+        (handoff) => handoff.id === action.handoffId,
+      );
+      if (!packet) throw new Error("Unknown handoff packet.");
+      const decided = decideHandoff(
+        packet,
+        action.decision,
+        action.receiverName,
+        action.receiverNote,
+      );
+      const withPacket: StudyState = {
+        ...state,
+        handoffs: state.handoffs.map((handoff) =>
+          handoff.id === packet.id ? decided : handoff,
+        ),
+        activeBaseline: null,
+      };
+      const next =
+        action.decision === "declined"
+          ? rollbackDeclinedHandoff(withPacket, decided)
+          : withPacket;
+      return mutate(state, action, regressReadyProject(next));
+    }
+    case "handoff/item-decide": {
+      const next: StudyState = {
+        ...state,
+        handoffs: state.handoffs.map((handoff) =>
+          handoff.id !== action.handoffId
+            ? handoff
+            : {
+                ...handoff,
+                openItems: handoff.openItems.map((item) =>
+                  item.id === action.itemId
+                    ? { ...item, status: action.status }
+                    : item,
+                ),
+              },
+        ),
+      };
+      return mutate(state, action, next);
     }
     case "workspace/reset":
       return action.state;

@@ -32,6 +32,8 @@ export interface Recording {
   color: string;
   createdAt: string;
   updatedAt: string;
+  /** Handoff packet this recording entered the study through; absent = pre-handoff baseline. */
+  handoffId?: string;
 }
 
 export interface Site {
@@ -60,6 +62,77 @@ export interface QualityIssue {
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string;
+  /** Handoff packet this finding entered the study through; absent = pre-handoff baseline. */
+  handoffId?: string;
+}
+
+export type HandoffStatus = "pending" | "accepted" | "declined";
+export type HandoffChangeKind =
+  | "recording-added"
+  | "recording-updated"
+  | "recording-removed"
+  | "placement-added"
+  | "placement-removed"
+  | "placement-reordered"
+  | "issue-added"
+  | "issue-updated"
+  | "issue-removed";
+export type HandoffItemStatus = "pending" | "accepted" | "declined";
+export type HandoffItemSeverity = "critical" | "warning" | "note";
+
+/** A single change observed during the offline session, scoped to a clip or site. */
+export interface HandoffChange {
+  id: string;
+  kind: HandoffChangeKind;
+  summary: string;
+  recordingId?: string;
+  recordingTitle?: string;
+  issueId?: string;
+  issueTitle?: string;
+  siteId?: string;
+  siteName?: string;
+  revision: number;
+  at: string;
+}
+
+/** An unfinished item the outgoing worker flags for the receiver. */
+export interface HandoffItem {
+  id: string;
+  title: string;
+  detail: string;
+  severity: HandoffItemSeverity;
+  status: HandoffItemStatus;
+  recordingId?: string;
+  siteId?: string;
+  createdAt: string;
+}
+
+/** A frozen summary of the route at session start, used to derive offline changes. */
+export interface HandoffBaseline {
+  revision: number;
+  capturedAt: string;
+  recordingIds: string[];
+  siteSequences: Record<string, string[]>;
+  issueIds: string[];
+}
+
+export interface HandoffPacket {
+  id: string;
+  sequence: number;
+  status: HandoffStatus;
+  outgoingName: string;
+  outgoingRole: string;
+  incomingName: string;
+  note: string;
+  baseline: HandoffBaseline;
+  changes: HandoffChange[];
+  openItems: HandoffItem[];
+  revisionRange: { from: number; to: number };
+  createdAt: string;
+  decidedAt?: string;
+  receiverName?: string;
+  receiverNote?: string;
+  supersedes?: string;
 }
 
 export interface RoutePreferences {
@@ -92,7 +165,7 @@ export interface CommandLogEntry {
 }
 
 export interface StudyState {
-  version: 2;
+  version: 3;
   revision: number;
   updatedAt: string;
   project: FieldStudy;
@@ -102,6 +175,10 @@ export interface StudyState {
   preferences: RoutePreferences;
   auditLog: CommandLogEntry[];
   release: ReleaseRecord | null;
+  /** Packet history, newest last. Pending packets quarantine their content from release. */
+  handoffs: HandoffPacket[];
+  /** Set once an offline session begins; cleared when the packet is decided. */
+  activeBaseline: HandoffBaseline | null;
   lastSavedAt?: string;
 }
 

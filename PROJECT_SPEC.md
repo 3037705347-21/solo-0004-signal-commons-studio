@@ -19,6 +19,7 @@ Signal Commons Studio is an offline-first browser workspace for community sounds
 - `Placement`: assignment of a recording to a site and position in the route.
 - `QualityIssue`: a severity-ranked evidence finding linked to a site or clip, with open, in-progress, or resolved state.
 - `Snapshot`: a frozen release summary used for local export and comparison.
+- `HandoffPacket`: a portable offline handover record with outgoing/incoming colleagues, a frozen session baseline, derived change list, unfinished items, and accept/decline decision history.
 
 ## Workflows
 
@@ -42,6 +43,10 @@ The user opens the scenario lab and adjusts listening pace, listener count, and 
 
 The user filters the quality desk by a listening site and downloads a CSV checklist that lists every placed clip in sequence with audio duration and unresolved findings.
 
+### 6. Hand off offline work between colleagues
+
+Before an offline session, the outgoing worker opens the handoff desk and starts a session, which captures a baseline revision and entity-id snapshot. They complete recordings, placements, and findings normally. When handing the shared browser to the next colleague, they prepare a handoff packet: both parties sign the record (outgoing and incoming names), the engine derives the full change list against the baseline (clips added/edited/removed, placements added/removed/reordered, findings added/updated/removed), and unfinished items with severity are attached. The packet is downloadable as a portable JSON list or a printable, signable Markdown checklist. While pending, content introduced by the session is quarantined: it is excluded from release evaluation and frozen against edits. The receiver reviews the same checklist, then accepts (scope enters normal release judgment and the items become traceable to that packet forever) or declines (content introduced only by that session is rolled back). Every packet keeps a monotonic sequence and the id of the previously accepted packet, and a provenance index traces each introduced clip and finding back to its handoff.
+
 ## State and rules
 
 - Study state transitions are `draft -> review -> ready`; a blocking change regresses a ready study to `review`.
@@ -60,36 +65,44 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Critical consent or editorial findings block release until resolved.
 - A successful readiness check freezes a revision, deterministic content fingerprint, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
 - Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage.
+- Handoff sessions capture a revision-bound baseline; preparing a packet freezes derived changes, unfinished items, and the revision range into a monotonic, append-only handoff history.
+- New clips and findings introduced during a handoff session carry the packet id as provenance. Provenance is excluded from the release fingerprint.
+- A pending handoff quarantines its introduced clips and findings from route/release analysis and locks them against edits; readiness checks cannot pass while a session is open or a packet is pending.
+- Accepting a packet releases its scope into normal judgment; declining it removes the clips and findings introduced only by that session (inherited baseline content is preserved) and marks the packet declined in history.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
 
 ## Modules and dependency direction
 
 - `app`: application composition, routing, shell, and page entry points.
 - `domain`: entities, validation, state transitions, route analysis, release rules, checklist serialization, and scenario projections.
-- `state`: revision-guarded commands, reducer, audit log, cross-tab synchronization, checksummed persistence and recovery, migrations, seed study, and selectors.
+- `state`: revision-guarded commands, reducer, audit log, cross-tab synchronization, checksummed persistence and recovery, migrations, seed study, handoff session state, and selectors.
 - `features/library`: signal library discovery, filtering, creation, and editing.
 - `features/route`: listening-site planning, placement transitions, and constraint feedback.
 - `features/quality`: evidence finding lifecycle, field checklist export, release gate, and snapshot export.
 - `features/scenarios`: non-mutating listener scenario projection and preference application.
+- `features/handoff`: offline session baseline, portable handover checklist, receiver accept/decline, quarantine gating, and provenance history.
 - `components`: shared navigation, forms, dialogs, feedback, metrics, and visual primitives.
 
 ## Public interfaces
 
-- Browser routes: `/library`, `/route`, `/quality`, and `/scenarios`.
+- Browser routes: `/library`, `/route`, `/quality`, `/scenarios`, and `/handoff`.
 - `StudyProvider` exposes typed commands and derived state to pages.
 - Local persistence key: `signal-commons.workspace.v1`.
 - Recovery backup key: `signal-commons.workspace.backup.v1`.
 - JSON snapshot download: `signal-commons-snapshot-<date>.json`.
 - Field checklist download: `signal-commons-route-checklist-<site>-<date>.csv`.
+- Portable handoff download: `signal-commons-handoff-<sequence>-<date>.json` (plus a `.md` printable checklist).
 - JSON snapshots use schema version 2 and include the frozen content revision, fingerprint, planning preferences, route summary, and unresolved findings.
+- Portable handoff lists use schema version 1, are tagged `signal-commons-handoff`, and embed the full packet, study title/area, and change totals.
 
 ## Validation plan
 
 - TypeScript compilation and Vite production build.
-- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, and versioned persistence.
+- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, versioned persistence, handoff change derivation, quarantine, accept/decline lifecycle, and portable checklist serialization.
 - Playwright browser checks for the five user-facing workflows.
 - Playwright checks that invalid capacity placements are rejected before route state changes.
 - Playwright checks that committed workspace changes propagate to a second browser tab.
+- Playwright checks that a prepared handoff quarantines new content from release until the receiver accepts it, and that declining rolls the session's new clip out of the study.
 - Generic project audit verifies source scale, manifest consistency, and every declared workflow command.
 
 ## Intentionally omitted

@@ -1,4 +1,5 @@
 import {
+  ArrowRightLeft,
   BookOpen,
   Boxes,
   ChevronRight,
@@ -6,6 +7,7 @@ import {
   Compass,
   Gauge,
   LayoutDashboard,
+  Lock,
   RotateCcw,
   Settings2,
   Sparkles,
@@ -41,6 +43,12 @@ const navigation = [
     icon: Gauge,
     detail: "Field planning",
   },
+  {
+    to: "/handoff",
+    label: "Field handoff",
+    icon: ArrowRightLeft,
+    detail: "Offline handover",
+  },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -49,6 +57,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const active =
     navigation.find((item) => location.pathname.startsWith(item.to)) ??
     navigation[0];
+  const pendingHandoff = state.handoffs.find(
+    (handoff) => handoff.status === "pending",
+  );
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -82,13 +93,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <strong>{label}</strong>
                 <small>{detail}</small>
               </span>
-              {location.pathname.startsWith(to) && (
+              {to === "/handoff" && pendingHandoff ? (
+                <span className="nav-pending-dot" aria-label="Pending handoff" />
+              ) : location.pathname.startsWith(to) ? (
                 <ChevronRight size={15} className="nav-chevron" />
-              )}
+              ) : null}
             </NavLink>
           ))}
         </nav>
         <div className="sidebar-bottom">
+          {pendingHandoff && (
+            <NavLink to="/handoff" className="handoff-alert">
+              <Lock size={15} />
+              <span>
+                Handoff #{pendingHandoff.sequence} awaits receiver confirmation.
+                New content is held from release.
+              </span>
+            </NavLink>
+          )}
           <div className="sidebar-note">
             <CircleHelp size={16} />
             <span>
@@ -126,6 +148,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <strong>{active.label}</strong>
           </div>
           <div className="topbar-actions">
+            {pendingHandoff && (
+              <NavLink to="/handoff">
+                <Badge tone="warning">
+                  <Lock size={12} /> Handoff pending
+                </Badge>
+              </NavLink>
+            )}
             <Badge
               tone={state.project.stage === "ready" ? "positive" : "warning"}
             >

@@ -5,6 +5,8 @@ import type {
   RoutePreferences,
   QualityIssue,
   StudyState,
+  HandoffPacket,
+  HandoffBaseline,
 } from "../domain/models";
 
 export interface CommandMeta {
@@ -12,6 +14,14 @@ export interface CommandMeta {
   expectedRevision: number;
   originId: string;
   issuedAt: string;
+}
+
+export interface HandoffOpenItemInput {
+  title: string;
+  detail: string;
+  severity: "critical" | "warning" | "note";
+  recordingId?: string;
+  siteId?: string;
 }
 
 type StudyActionPayload =
@@ -39,6 +49,29 @@ type StudyActionPayload =
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
   | { type: "project/readiness"; release: ReleaseRecord }
+  | {
+      type: "handoff/begin";
+      baseline: HandoffBaseline;
+    }
+  | {
+      type: "handoff/create";
+      packet: HandoffPacket;
+      recordings: Recording[];
+      issues: QualityIssue[];
+    }
+  | {
+      type: "handoff/decide";
+      handoffId: string;
+      decision: "accepted" | "declined";
+      receiverName: string;
+      receiverNote: string;
+    }
+  | {
+      type: "handoff/item-decide";
+      handoffId: string;
+      itemId: string;
+      status: "accepted" | "declined";
+    }
   | { type: "workspace/reset"; state: StudyState }
   | { type: "workspace/sync"; state: StudyState };
 

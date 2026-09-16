@@ -7,6 +7,7 @@ import type {
   StudyState,
 } from "./models";
 import { createId } from "./ids";
+import { releaseHandoffBlockers } from "./handoff";
 import { releaseFingerprint } from "./releaseIdentity";
 export function evaluateRelease(
   state: StudyState,
@@ -36,6 +37,8 @@ export function evaluateRelease(
     blockers.push(
       "The route should include arrival, texture, voice, and departure signals.",
     );
+  // Pending handoff content is quarantined: it cannot enter release judgment.
+  blockers.push(...releaseHandoffBlockers(state));
   if (analysis.warningCount)
     cautions.push(
       `${analysis.warningCount} route warning${analysis.warningCount === 1 ? "" : "s"} should be reviewed.`,

@@ -4,6 +4,7 @@ import { LibraryPage } from "../features/library/LibraryPage";
 import { RoutePage } from "../features/route/RoutePage";
 import { QualityPage } from "../features/quality/QualityPage";
 import { ScenariosPage } from "../features/scenarios/ScenariosPage";
+import { HandoffPage } from "../features/handoff/HandoffPage";
 
 export function App() {
   return (
@@ -15,6 +16,7 @@ export function App() {
           <Route path="/route" element={<RoutePage />} />
           <Route path="/quality" element={<QualityPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
+          <Route path="/handoff" element={<HandoffPage />} />
           <Route path="*" element={<Navigate to="/library" replace />} />
         </Routes>
       </AppShell>

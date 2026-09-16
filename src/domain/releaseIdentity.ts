@@ -59,6 +59,7 @@ export function releaseFingerprint(state: StudyState): string {
         isFeatured: recording.isFeatured,
         tags: [...recording.tags].sort(),
         color: recording.color,
+        // handoffId is provenance metadata, not release-relevant content.
       })),
     sites: state.sites
       .slice()
@@ -93,6 +94,7 @@ export function releaseFingerprint(state: StudyState): string {
         recordingId: issue.recordingId ?? null,
         owner: issue.owner,
         resolvedAt: issue.resolvedAt ?? null,
+        // handoffId is provenance metadata, not release-relevant content.
       })),
   };
   return `${FINGERPRINT_PREFIX}-${fnv1a(stableStringify(projection))}`;

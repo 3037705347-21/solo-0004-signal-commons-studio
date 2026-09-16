@@ -27,6 +27,7 @@ npm run check
 - `src/features/library`: searchable signal library and validated recording editor.
 - `src/features/route`: listening-site planning, placement transitions, and constraint feedback.
 - `src/features/quality`: evidence finding lifecycle, site field checklists, release gate, and snapshot export.
+- `src/features/handoff`: offline session baseline, portable handover checklist, receiver accept/decline, quarantine gating, and provenance history.
 - `src/features/scenarios`: non-mutating listener scenario controls and derived metrics.
 - `src/components`: shared shell, navigation, forms, badges, metrics, dialogs, and visual primitives.
 
@@ -36,5 +37,6 @@ npm run check
 - Quality findings accept severity, owner, optional site or clip links, and decision context.
 - A successful release check enables a JSON file named `signal-commons-snapshot-YYYY-MM-DD.json` containing the study, recordings, listening sites, summary metrics, and unresolved non-blocking findings.
 - Selecting a listening site on the quality desk shows a field recording checklist that can be downloaded as CSV.
+- The **Field handoff** desk (`/handoff`) starts a revision-bound offline session, derives every clip, placement, and finding change against its baseline, and freezes a portable packet (`signal-commons-handoff-<sequence>-<date>.json`, plus a signable `.md` checklist). New content is quarantined from readiness checks and edits until the receiver accepts the scope; declining removes only the content that session introduced. Accepted clips and findings keep their packet id, so the handoff history traces each item back to its source.
 
-State-changing page actions call typed workspace commands. Commands validate at the boundary, enforce route capacity, carry revision guards, dispatch reducer events, and persist a checksummed recoverable record. Repeated commands are idempotent, stale revisions are rejected, and committed changes synchronize across tabs. Readiness checks freeze a revision, deterministic study fingerprint, and release lineage; later changes mark the frozen release stale. Derived route and scenario analysis is pure and recalculates without mutating saved data.
+State-changing page actions call typed workspace commands. Commands validate at the boundary, enforce route capacity, carry revision guards, dispatch reducer events, and persist a checksummed recoverable record. Repeated commands are idempotent, stale revisions are rejected, and committed changes synchronize across tabs. Readiness checks freeze a revision, deterministic study fingerprint, and release lineage; later changes mark the frozen release stale. A pending handoff packet (or an open handoff session) blocks readiness and excludes the session's new clips and findings from release analysis until the receiver decides. Derived route and scenario analysis is pure and recalculates without mutating saved data.

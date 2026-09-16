@@ -23,6 +23,18 @@ export function describeAction(action: StudyAction): string {
       return action.release.readiness.ready
         ? "Marked project ready"
         : "Returned project to review";
+    case "handoff/begin":
+      return "Opened an offline handoff session";
+    case "handoff/create":
+      return `Prepared handoff packet #${action.packet.sequence}`;
+    case "handoff/decide":
+      return action.decision === "accepted"
+        ? "Accepted handoff packet and took over its scope"
+        : "Declined handoff packet and rolled back its clips";
+    case "handoff/item-decide":
+      return action.status === "accepted"
+        ? "Confirmed a handover item"
+        : "Flagged a handover item as not taken on";
     case "workspace/reset":
       return "Reset workspace to sample plan";
     case "workspace/sync":

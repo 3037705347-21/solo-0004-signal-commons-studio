@@ -1,6 +1,10 @@
 import type {
   AudioSpec,
   CommandLogEntry,
+  HandoffBaseline,
+  HandoffChange,
+  HandoffItem,
+  HandoffPacket,
   QualityIssue,
   Recording,
   ReleaseRecord,
@@ -19,6 +23,20 @@ const TRANSCRIPT_STATUSES = new Set(["missing", "draft", "verified"]);
 const CONSENT_STATUSES = new Set(["pending", "confirmed", "restricted"]);
 const ISSUE_SEVERITIES = new Set(["note", "warning", "critical"]);
 const ISSUE_STATUSES = new Set(["open", "in-progress", "resolved"]);
+const HANDOFF_STATUSES = new Set(["pending", "accepted", "declined"]);
+const HANDOFF_CHANGE_KINDS = new Set([
+  "recording-added",
+  "recording-updated",
+  "recording-removed",
+  "placement-added",
+  "placement-removed",
+  "placement-reordered",
+  "issue-added",
+  "issue-updated",
+  "issue-removed",
+]);
+const HANDOFF_ITEM_SEVERITIES = new Set(["critical", "warning", "note"]);
+const HANDOFF_ITEM_STATUSES = new Set(["pending", "accepted", "declined"]);
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -71,7 +89,10 @@ function isRecording(value: unknown): value is Recording {
     value.tags.every((tag) => typeof tag === "string") &&
     typeof value.color === "string" &&
     isNonEmptyString(value.createdAt) &&
-    isNonEmptyString(value.updatedAt)
+    isNonEmptyString(value.updatedAt) &&
+    (value.handoffId === undefined ||
+      value.handoffId === null ||
+      typeof value.handoffId === "string")
   );
 }
 
@@ -106,7 +127,10 @@ function isIssue(value: unknown): value is QualityIssue {
     ISSUE_STATUSES.has(value.status) &&
     isNonEmptyString(value.owner) &&
     isNonEmptyString(value.createdAt) &&
-    isNonEmptyString(value.updatedAt)
+    isNonEmptyString(value.updatedAt) &&
+    (value.handoffId === undefined ||
+      value.handoffId === null ||
+      typeof value.handoffId === "string")
   );
 }
 
@@ -268,9 +292,157 @@ function migratedUpdatedAt(state: StudyState): string {
     : "1970-01-01T00:00:00.000Z";
 }
 
+function migrateHandoffBaseline(value: unknown): HandoffBaseline | null {
+  if (!isRecord(value)) return null;
+  if (
+    !Number.isInteger(value.revision) ||
+    Number(value.revision) < 0 ||
+    !isNonEmptyString(value.capturedAt) ||
+    !Array.isArray(value.recordingIds) ||
+    !value.recordingIds.every((id) => typeof id === "string") ||
+    !Array.isArray(value.issueIds) ||
+    !value.issueIds.every((id) => typeof id === "string") ||
+    !isRecord(value.siteSequences)
+  )
+    return null;
+  const siteSequences: Record<string, string[]> = {};
+  for (const [siteId, ids] of Object.entries(value.siteSequences)) {
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string"))
+      return null;
+    siteSequences[siteId] = ids;
+  }
+  return {
+    revision: Number(value.revision),
+    capturedAt: value.capturedAt,
+    recordingIds: value.recordingIds,
+    siteSequences,
+    issueIds: value.issueIds,
+  };
+}
+
+function migrateHandoffChange(value: unknown): HandoffChange | null {
+  if (!isRecord(value)) return null;
+  if (
+    !isNonEmptyString(value.id) ||
+    !HANDOFF_CHANGE_KINDS.has(value.kind as string) ||
+    !isNonEmptyString(value.summary) ||
+    !Number.isInteger(value.revision) ||
+    !isNonEmptyString(value.at)
+  )
+    return null;
+  return {
+    id: value.id,
+    kind: value.kind as HandoffChange["kind"],
+    summary: value.summary,
+    recordingId: isNonEmptyString(value.recordingId)
+      ? value.recordingId
+      : undefined,
+    recordingTitle: isNonEmptyString(value.recordingTitle)
+      ? value.recordingTitle
+      : undefined,
+    issueId: isNonEmptyString(value.issueId) ? value.issueId : undefined,
+    issueTitle: isNonEmptyString(value.issueTitle)
+      ? value.issueTitle
+      : undefined,
+    siteId: isNonEmptyString(value.siteId) ? value.siteId : undefined,
+    siteName: isNonEmptyString(value.siteName) ? value.siteName : undefined,
+    revision: Number(value.revision),
+    at: value.at,
+  };
+}
+
+function migrateHandoffItem(value: unknown): HandoffItem | null {
+  if (!isRecord(value)) return null;
+  if (
+    !isNonEmptyString(value.id) ||
+    !isNonEmptyString(value.title) ||
+    typeof value.detail !== "string" ||
+    !HANDOFF_ITEM_SEVERITIES.has(value.severity as string) ||
+    !HANDOFF_ITEM_STATUSES.has(value.status as string) ||
+    !isNonEmptyString(value.createdAt)
+  )
+    return null;
+  return {
+    id: value.id,
+    title: value.title,
+    detail: value.detail,
+    severity: value.severity as HandoffItem["severity"],
+    status: value.status as HandoffItem["status"],
+    recordingId: isNonEmptyString(value.recordingId)
+      ? value.recordingId
+      : undefined,
+    siteId: isNonEmptyString(value.siteId) ? value.siteId : undefined,
+    createdAt: value.createdAt,
+  };
+}
+
+function migrateHandoff(value: unknown): HandoffPacket | null {
+  if (!isRecord(value)) return null;
+  if (
+    !isNonEmptyString(value.id) ||
+    !HANDOFF_STATUSES.has(value.status as string) ||
+    !isNonEmptyString(value.outgoingName) ||
+    typeof value.outgoingRole !== "string" ||
+    typeof value.incomingName !== "string" ||
+    typeof value.note !== "string" ||
+    !isRecord(value.baseline) ||
+    !Array.isArray(value.changes) ||
+    !Array.isArray(value.openItems) ||
+    !isRecord(value.revisionRange) ||
+    !isNonEmptyString(value.createdAt)
+  )
+    return null;
+  const baseline = migrateHandoffBaseline(value.baseline);
+  if (!baseline) return null;
+  const changes = value.changes
+    .map(migrateHandoffChange)
+    .filter((change): change is HandoffChange => Boolean(change));
+  const openItems = value.openItems
+    .map(migrateHandoffItem)
+    .filter((item): item is HandoffItem => Boolean(item));
+  const sequence =
+    Number.isInteger(value.sequence) && Number(value.sequence) > 0
+      ? Number(value.sequence)
+      : 1;
+  const revisionRange = {
+    from: Number.isInteger(value.revisionRange.from)
+      ? Number(value.revisionRange.from)
+      : baseline.revision,
+    to: Number.isInteger(value.revisionRange.to)
+      ? Number(value.revisionRange.to)
+      : baseline.revision,
+  };
+  return {
+    id: value.id,
+    sequence,
+    status: value.status as HandoffPacket["status"],
+    outgoingName: value.outgoingName,
+    outgoingRole: value.outgoingRole,
+    incomingName: value.incomingName,
+    note: value.note,
+    baseline,
+    changes,
+    openItems,
+    revisionRange,
+    createdAt: value.createdAt,
+    decidedAt: isNonEmptyString(value.decidedAt)
+      ? value.decidedAt
+      : undefined,
+    receiverName: isNonEmptyString(value.receiverName)
+      ? value.receiverName
+      : undefined,
+    receiverNote:
+      typeof value.receiverNote === "string" ? value.receiverNote : undefined,
+    supersedes: isNonEmptyString(value.supersedes)
+      ? value.supersedes
+      : undefined,
+  };
+}
+
 export function migrateWorkspace(value: unknown): StudyState | null {
   if (!isRecord(value)) return null;
-  if (value.version !== 1 && value.version !== 2) return null;
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3)
+    return null;
   if (!isProject(value.project)) return null;
   if (!Array.isArray(value.recordings) || !value.recordings.every(isRecording))
     return null;
@@ -280,7 +452,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
 
   if (value.version === 1) {
     const legacy: StudyState = {
-      version: 2,
+      version: 3,
       revision: 0,
       updatedAt: "",
       project: value.project,
@@ -290,6 +462,8 @@ export function migrateWorkspace(value: unknown): StudyState | null {
       preferences: value.preferences,
       auditLog: [],
       release: null,
+      handoffs: [],
+      activeBaseline: null,
     };
     return {
       ...legacy,
@@ -304,23 +478,47 @@ export function migrateWorkspace(value: unknown): StudyState | null {
         .map(migrateAuditEntry)
         .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
+  const handoffs =
+    value.version === 3 && Array.isArray(value.handoffs)
+      ? value.handoffs
+          .map(migrateHandoff)
+          .filter((handoff): handoff is HandoffPacket => Boolean(handoff))
+      : [];
+  // Restore an open session baseline whether or not its packet exists yet; a
+  // mid-session reload must not silently end the tracked offline session.
+  const activeBaseline =
+    value.version === 3 ? migrateHandoffBaseline(value.activeBaseline) : null;
   return {
-    version: 2,
+    version: 3,
     revision: Number(value.revision),
     updatedAt: isNonEmptyString(value.updatedAt)
       ? value.updatedAt
       : new Date().toISOString(),
     project: value.project,
-    recordings: value.recordings,
+    recordings: value.recordings.map(withRecordingProvenance),
     sites: value.sites,
-    issues: value.issues,
+    issues: value.issues.map(withIssueProvenance),
     preferences: value.preferences,
     auditLog,
     release: migrateRelease(value.release),
+    handoffs,
+    activeBaseline,
     lastSavedAt: isNonEmptyString(value.lastSavedAt)
       ? value.lastSavedAt
       : undefined,
   };
+}
+
+function withRecordingProvenance(recording: Recording): Recording {
+  return "handoffId" in recording && isNonEmptyString(recording.handoffId)
+    ? { ...recording, handoffId: recording.handoffId }
+    : recording;
+}
+
+function withIssueProvenance(issue: QualityIssue): QualityIssue {
+  return "handoffId" in issue && isNonEmptyString(issue.handoffId)
+    ? { ...issue, handoffId: issue.handoffId }
+    : issue;
 }
 
 export function validateReferences(state: StudyState): StudyState {
@@ -346,7 +544,25 @@ export function validateReferences(state: StudyState): StudyState {
         ? issue.recordingId
         : undefined,
   }));
-  const normalized = { ...state, sites, issues };
+  // Keep provenance pointers resolvable; a dangling handoff id means the
+  // lineage record was lost, so fall back to pre-handoff baseline content.
+  const handoffIds = new Set(state.handoffs.map((handoff) => handoff.id));
+  const recordings = state.recordings.map((recording) =>
+    recording.handoffId && !handoffIds.has(recording.handoffId)
+      ? { ...recording, handoffId: undefined }
+      : recording,
+  );
+  const resolvedIssues = issues.map((issue) =>
+    issue.handoffId && !handoffIds.has(issue.handoffId)
+      ? { ...issue, handoffId: undefined }
+      : issue,
+  );
+  const normalized = {
+    ...state,
+    recordings,
+    sites,
+    issues: resolvedIssues,
+  };
   if (
     normalized.release?.status === "ready" &&
     normalized.release.fingerprint !== releaseFingerprint(normalized)

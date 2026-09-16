@@ -38,6 +38,7 @@ import {
   evaluateRelease,
   isReleaseCurrent,
 } from "../../domain/releaseRules";
+import { effectiveReleaseState } from "../../domain/handoff";
 import {
   buildSiteChecklist,
   serializeSiteChecklistCsv,
@@ -68,10 +69,16 @@ export function QualityPage() {
   } = useStudy();
   const [reviewUi, setReviewUi] = useState<ReviewUiState>(() => loadReviewUi());
   const [showModal, setShowModal] = useState(false);
-  const [readiness, setReadiness] = useState(() =>
-    state.release?.readiness ??
-      evaluateRelease(state, analyzeRoute(state.recordings, state.sites)),
-  );
+  const [readiness, setReadiness] = useState(() => {
+    const effective = effectiveReleaseState(state);
+    return (
+      state.release?.readiness ??
+      evaluateRelease(
+        state,
+        analyzeRoute(effective.recordings, effective.sites),
+      )
+    );
+  });
   const [toast, setToast] = useState<string | null>(null);
   const releaseCurrent = isReleaseCurrent(state, state.release);
   const exportReady = readiness.ready && releaseCurrent;
