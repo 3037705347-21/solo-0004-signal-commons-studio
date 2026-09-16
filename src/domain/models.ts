@@ -89,6 +89,8 @@ export interface CommandLogEntry {
   summary: string;
   timestamp: string;
   actor: "local-user" | "system";
+  /** Set on conflict/resolve entries so other tabs prune the exact conflict. */
+  conflictId?: string;
 }
 
 export interface StudyState {

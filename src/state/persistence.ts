@@ -227,6 +227,26 @@ export function saveConflicts(
   }
 }
 
+/**
+ * Drop conflicts a synced revision already resolved. The resolving tab prunes
+ * its own list in a separate write that can land *after* this tab processes the
+ * workspace event; re-saving the pending list at that point would resurrect the
+ * resolved conflict. Resolution entries carry the resolved conflict id so the
+ * pruning happens deterministically from the committed document itself.
+ */
+export function pruneResolvedConflicts(
+  conflicts: ConflictRecord[],
+  incoming: StudyState,
+): ConflictRecord[] {
+  const resolvedIds = new Set(
+    incoming.auditLog
+      .filter((entry) => entry.action === "conflict/resolve")
+      .map((entry) => entry.conflictId)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return conflicts.filter((conflict) => !resolvedIds.has(conflict.id));
+}
+
 export function loadDrafts(
   storage: Pick<Storage, "getItem"> = localStorage,
 ): ConflictDraft[] {

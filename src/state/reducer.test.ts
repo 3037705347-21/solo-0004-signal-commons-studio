@@ -210,6 +210,7 @@ describe("workspace reducer boundaries", () => {
       action: "conflict/resolve",
       revision: 3,
       status: "applied",
+      conflictId: "conflict-reducer",
     });
   });
 

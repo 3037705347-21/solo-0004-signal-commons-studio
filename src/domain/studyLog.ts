@@ -57,6 +57,8 @@ export function makeLogEntry(
     summary: describeAction(action),
     timestamp: at.toISOString(),
     actor,
+    conflictId:
+      action.type === "conflict/resolve" ? action.conflict.id : undefined,
   };
 }
 

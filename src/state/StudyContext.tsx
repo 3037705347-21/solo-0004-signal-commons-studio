@@ -41,6 +41,7 @@ import {
   loadDrafts,
   loadStudy,
   loadConflicts,
+  pruneResolvedConflicts,
   saveDrafts,
   saveConflicts,
   STORAGE_KEY,
@@ -122,9 +123,14 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     addDraft?: ConflictDraft;
   } | null>(null);
   const [storageHealthy, setStorageHealthy] = useState(true);
-  const [conflicts, setConflicts] = useState<ConflictRecord[]>(() =>
-    loadConflicts(),
-  );
+  // The workspace document (with its resolution audit trail) is the durable
+  // source of truth; on mount drop any conflict list a tab failed to prune
+  // before its last unload, so a resolved conflict cannot survive a refresh.
+  const [conflicts, setConflicts] = useState<ConflictRecord[]>(() => {
+    const initial = pruneResolvedConflicts(loadConflicts(), state);
+    if (initial.length < loadConflicts().length) saveConflicts(initial);
+    return initial;
+  });
   const [drafts, setDrafts] = useState<ConflictDraft[]>(() => loadDrafts());
   const [activeConflictId, setActiveConflictId] = useState<string | null>(null);
   const [conflictNotice, setConflictNotice] = useState<ConflictNotice | null>(
@@ -190,7 +196,40 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     }
     setStorageHealthy(true);
     if (outcome.status === "diverged") {
-      registerConflict(current, baseRef.current, outcome.committed);
+      const committed = outcome.committed;
+      // Another tab already committed a resolution for the same conflict this
+      // tab is now resolving. Do not re-open it: adopt the committed result and
+      // prune the conflict instead of registering a duplicate.
+      const alreadyResolvedHere = current.auditLog.some(
+        (entry) =>
+          entry.action === "conflict/resolve" &&
+          typeof entry.conflictId === "string" &&
+          committed.auditLog.some(
+            (committedEntry) =>
+              committedEntry.action === "conflict/resolve" &&
+              committedEntry.conflictId === entry.conflictId,
+          ),
+      );
+      if (alreadyResolvedHere) {
+        committedSigRef.current = signatureOf(committed);
+        baseRef.current = committed;
+        const pendingBookkeeping = resolutionBookkeepingRef.current;
+        resolutionBookkeepingRef.current = null;
+        const remaining = pruneResolvedConflicts(loadConflicts(), committed);
+        saveConflicts(remaining);
+        if (pendingBookkeeping?.addDraft)
+          saveDrafts([...loadDrafts(), pendingBookkeeping.addDraft]);
+        setConflicts(remaining);
+        setDrafts(
+          pendingBookkeeping?.addDraft
+            ? [...loadDrafts(), pendingBookkeeping.addDraft]
+            : loadDrafts(),
+        );
+        setActiveConflictId(null);
+        dispatch({ type: "workspace/sync", state: committed });
+        return;
+      }
+      registerConflict(current, baseRef.current, committed);
       return;
     }
     if (outcome.status === "committed" || outcome.status === "identical") {
@@ -215,7 +254,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
       if (event.key === CONFLICTS_KEY) {
-        setConflicts(loadConflicts());
+        setConflicts(pruneResolvedConflicts(loadConflicts(), stateRef.current));
         return;
       }
       if (event.key === DRAFTS_KEY) {
@@ -240,9 +279,11 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       committedSigRef.current = signatureOf(incoming);
       baseRef.current = incoming;
       dispatch({ type: "workspace/sync", state: incoming });
-      // Rebase every pending conflict onto the newest commit so a later
-      // resolution cannot resurrect content a third tab already moved past.
-      const pending = loadConflicts();
+      // Prune conflicts resolved by the incoming commit before rebasing. The
+      // resolving tab prunes the conflict list in a separate write that may
+      // arrive after this workspace event; without this filter the rebase
+      // below would re-save (and resurrect) a conflict the team just closed.
+      const pending = pruneResolvedConflicts(loadConflicts(), incoming);
       const rebased = pending.map((conflict) =>
         incoming.revision >= conflict.theirsRevision
           ? { ...conflict, theirs: incoming, theirsRevision: incoming.revision }
@@ -250,10 +291,8 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       );
       if (rebased.some((conflict, index) => conflict !== pending[index])) {
         saveConflicts(rebased);
-        setConflicts(rebased);
-      } else {
-        setConflicts(pending);
       }
+      setConflicts(rebased);
       if (wasConflictResolution) {
         setConflictNotice({
           tone: "conflict-resolved",

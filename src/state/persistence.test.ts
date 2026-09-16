@@ -5,6 +5,7 @@ import {
   loadDrafts,
   loadStudy,
   loadConflicts,
+  pruneResolvedConflicts,
   saveConflicts,
   saveDrafts,
   saveStudy,
@@ -202,5 +203,77 @@ describe("workspace persistence", () => {
     };
     saveDrafts([draft], storage);
     expect(loadDrafts(storage)[0].commandSummary).toBe("Saved clip");
+  });
+
+  it("prunes conflicts named by a synced conflict/resolve audit entry", () => {
+    const base = createSeedStudy();
+    const makeConflict = (id: string, theirsRevision: number) => ({
+      id,
+      detectedAt: "2026-09-12T09:01:00.000Z",
+      originId: "tab-a",
+      originLabel: "This tab",
+      commandSummary: "Saved clip",
+      baseRevision: 5,
+      oursRevision: 6,
+      theirsRevision,
+      base,
+      ours: { ...base, revision: 6 },
+      theirs: { ...base, revision: theirsRevision },
+    });
+    const conflicts = [
+      makeConflict("conflict-resolved-now", 7),
+      makeConflict("conflict-still-open", 6),
+    ];
+    const incoming: ReturnType<typeof loadStudy> = {
+      ...base,
+      revision: 8,
+      updatedAt: "2026-09-12T09:10:00.000Z",
+      auditLog: [
+        ...base.auditLog,
+        {
+          id: "event-resolve",
+          commandId: "command-resolve",
+          originId: "tab-a",
+          revision: 8,
+          expectedRevision: 7,
+          status: "applied" as const,
+          action: "conflict/resolve",
+          summary: "Kept the committed version after a conflict",
+          timestamp: "2026-09-12T09:10:00.000Z",
+          actor: "local-user" as const,
+          conflictId: "conflict-resolved-now",
+        },
+      ],
+    };
+
+    const remaining = pruneResolvedConflicts(conflicts, incoming);
+    expect(remaining.map((conflict) => conflict.id)).toEqual([
+      "conflict-still-open",
+    ]);
+  });
+
+  it("round trips the conflictId stamped on resolution audit entries", () => {
+    const { storage } = makeMemoryStorage();
+    const state = createSeedStudy();
+    state.auditLog = [
+      ...state.auditLog,
+      {
+        id: "event-resolve",
+        commandId: "command-resolve",
+        originId: "tab-a",
+        revision: 1,
+        expectedRevision: 0,
+        status: "applied" as const,
+        action: "conflict/resolve",
+        summary: "Merged both edits after a conflict",
+        timestamp: "2026-09-12T09:10:00.000Z",
+        actor: "local-user" as const,
+        conflictId: "conflict-roundtrip",
+      },
+    ];
+    saveStudy(state, storage);
+    expect(loadStudy(storage).auditLog.at(-1)?.conflictId).toBe(
+      "conflict-roundtrip",
+    );
   });
 });

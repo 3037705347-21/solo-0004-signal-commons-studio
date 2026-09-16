@@ -160,6 +160,8 @@ function migrateAuditEntry(value: unknown): CommandLogEntry | null {
       summary: value.summary,
       timestamp: value.timestamp,
       actor: value.actor,
+      conflictId:
+        typeof value.conflictId === "string" ? value.conflictId : undefined,
     };
   }
   return null;
