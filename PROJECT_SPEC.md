@@ -48,7 +48,7 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Persisted state uses an explicit schema version, a monotonically increasing content revision, and a bounded command audit log.
 - State-changing commands carry a command ID, origin tab, issue time, and expected revision. Repeated command IDs are idempotent, while stale revisions are rejected and recorded without changing content.
 - Browser tabs synchronize committed workspace records through storage events and reload the checksummed primary or backup record.
-- Version 1 browser data is migrated into the current schema; nested invalid records are rejected and dangling or duplicate route references are repaired during startup validation.
+- Version 1 and version 2 browser data is migrated into the current schema (version 3): lifecycle metadata and a legacy import batch are back-filled, nested invalid records are rejected, and dangling or duplicate route references are repaired during startup validation while tombstone- and snapshot-backed references are preserved.
 - Persistence writes a checksummed record plus the previous primary record as a backup. A corrupt or incomplete primary record falls back to the last valid backup before using sample data.
 - Recording catalogue IDs are normalized and unique.
 - Every recording must have positive sample rate, duration, and a valid channels or bit depth value.
@@ -59,23 +59,36 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Arrival, texture, voice, and departure signals must all be represented in the route before release.
 - Critical consent or editorial findings block release until resolved.
 - A successful readiness check freezes a revision, deterministic content fingerprint, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
-- Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage.
+- Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage. Superseded releases move into a retained history with their snapshots embedded.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
+
+## Retention policy
+
+- Every business category runs on an executable, fixed-day retention window measured from a stored anchor: active library clips 180 days, import batches 90 days, listening sites 365 days, quality findings 120 days, and published release versions 1095 days.
+- Each record is reported as `within-retention`, `expired` (window elapsed, still live and eligible to archive), or `archived` (parked out of workflows).
+- Archival removes clips, sites, and findings from route analysis, scenario projection, checklists, snapshots, and the release gate, but the record and its id stay in the workspace. An archived clip cannot be parked while it is still placed on an active listening site.
+- Physical purge is only allowed from the archived state. A clip embedded in any published release snapshot is protected from purge.
+- Purge leaves a tombstone and never deletes references: route placement lists, quality findings, import batch manifests, and frozen releases continue to resolve the cleaned id to a stub labeled with the record name, purge time, reason, and the release versions that still cite it. Frozen snapshots embed full copies of the clips and sites they shipped, so an old release resolves its content even after the live records are gone.
+- Quality findings are never cascade-deleted when a linked site or clip is cleaned. They keep both links, resolve through the tombstone, remain visible in the quality desk (including a "Cleaned sites" filter group), and stop participating in the release gate once everything they cite is no longer live.
+- Archived records can be restored. Restore re-arms the retention window from the restore instant, re-links prior references, returns a ready project to review, marks the frozen release stale, and blocks export until a fresh readiness check passes.
+- A retention sweep archives expired, unprotected material and purges already-archived, unprotected material in one revision-guarded command; it never purges a record in the same run that first archives it, and protected records are reported as skipped.
+- Import batches are retained lineage records: their manifests (source, import time, and the full delivered clip id list) outlive their clips, so cleaned clips still appear in the batch that delivered them.
 
 ## Modules and dependency direction
 
 - `app`: application composition, routing, shell, and page entry points.
-- `domain`: entities, validation, state transitions, route analysis, release rules, checklist serialization, and scenario projections.
+- `domain`: entities, validation, state transitions, route analysis, release rules, checklist serialization, scenario projections, retention policy and lifecycle, and the reference-resolution registry.
 - `state`: revision-guarded commands, reducer, audit log, cross-tab synchronization, checksummed persistence and recovery, migrations, seed study, and selectors.
 - `features/library`: signal library discovery, filtering, creation, and editing.
 - `features/route`: listening-site planning, placement transitions, and constraint feedback.
 - `features/quality`: evidence finding lifecycle, field checklist export, release gate, and snapshot export.
 - `features/scenarios`: non-mutating listener scenario projection and preference application.
+- `features/retention`: retention reporting, archive/restore/purge controls, sweep execution, import batch lineage, and release lineage review.
 - `components`: shared navigation, forms, dialogs, feedback, metrics, and visual primitives.
 
 ## Public interfaces
 
-- Browser routes: `/library`, `/route`, `/quality`, and `/scenarios`.
+- Browser routes: `/library`, `/route`, `/quality`, `/scenarios`, and `/retention`.
 - `StudyProvider` exposes typed commands and derived state to pages.
 - Local persistence key: `signal-commons.workspace.v1`.
 - Recovery backup key: `signal-commons.workspace.backup.v1`.

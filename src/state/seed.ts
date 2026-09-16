@@ -548,25 +548,28 @@ export function createSeedStudy(): StudyState {
         createdAt: stamp,
         updatedAt: stamp,
       },
-      // Resolved long ago and kept past its 120-day window: a purge candidate.
+      // The retirement note for the old harbor site. The site and one of its
+      // clips have been cleaned, but this finding is retained within its own
+      // window and keeps pointing at them so reviewers can still see why the
+      // site was stopped.
       {
         id: "issue-old-harbor-note",
-        title: "Harbor route seating confirmation",
+        title: "Harbor loop retirement: pier access closed",
         description:
-          "Confirmed the old pier bench was usable for seated listening during the 2025 walk.",
+          "The harbor loop was stopped after the pier basement access was fenced off; the seating point is no longer reachable for public walks.",
         severity: "note",
         status: "resolved",
         siteId: "site-old-harbor",
         recordingId: "rec-rain-basement",
         owner: "Milo Chen",
-        resolvedAt: "2025-12-10T10:00:00.000Z",
+        resolvedAt: "2026-08-20T10:00:00.000Z",
         lifecycle: lifecycle(
           "quality-finding",
-          "2025-12-10T10:00:00.000Z",
-          "expired",
+          "2026-08-20T10:00:00.000Z",
+          "within-retention",
         ),
-        createdAt: "2025-11-20T10:00:00.000Z",
-        updatedAt: "2025-12-10T10:00:00.000Z",
+        createdAt: "2026-08-12T10:00:00.000Z",
+        updatedAt: "2026-08-20T10:00:00.000Z",
       },
     ],
     importBatches,

@@ -3,6 +3,7 @@ import { analyzeRoute } from "../domain/routeAnalysis";
 import {
   createReleaseRecord,
   evaluateRelease,
+  isActiveFinding,
   liveRecordings,
   liveSites,
 } from "../domain/releaseRules";
@@ -115,6 +116,37 @@ describe("retention commands in the reducer", () => {
     expect(
       resolveRecording(secondReady, "rec-rain-basement")?.recording?.title,
     ).toBe("Rain on basement grating");
+  });
+
+  it("retains findings linked to a purged site but excludes them from the release gate", () => {
+    let state = createSeedStudy();
+    const finding = state.issues.find(
+      (issue) => issue.id === "issue-old-harbor-note",
+    )!;
+    expect(finding.siteId).toBe("site-old-harbor");
+    // Purge the cited site through the reducer.
+    state = workspaceReducer(state, {
+      type: "retention/purge",
+      target: "site",
+      id: "site-old-harbor",
+    });
+    // The finding survives with both links intact.
+    const retained = state.issues.find(
+      (issue) => issue.id === "issue-old-harbor-note",
+    );
+    expect(retained?.siteId).toBe("site-old-harbor");
+    expect(retained?.recordingId).toBe("rec-rain-basement");
+    expect(resolveRecording(state, "rec-rain-basement")?.availability).toBe(
+      "purged",
+    );
+    // It is not an active gate finding because both targets are cleaned.
+    expect(isActiveFinding(state, retained!)).toBe(false);
+    const analysis = analyzeRoute(
+      liveRecordings(state),
+      liveSites(state),
+    );
+    const blockers = evaluateRelease(state, analysis).blockers.join(" ");
+    expect(blockers).not.toContain(finding.title);
   });
 
   it("sweep reports no revision bump when nothing is due", () => {

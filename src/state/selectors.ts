@@ -1,5 +1,10 @@
 import { analyzeRoute, getUnplacedRecordings } from "../domain/routeAnalysis";
-import { issueProgress, liveRecordings, liveSites } from "../domain/releaseRules";
+import {
+  activeFindings,
+  issueProgress,
+  liveRecordings,
+  liveSites,
+} from "../domain/releaseRules";
 import type {
   Recording,
   QualityIssue,
@@ -53,21 +58,15 @@ export function selectWorkspaceSummary(state: StudyState) {
   const recordings = liveRecordings(state);
   const sites = liveSites(state);
   const analysis = analyzeRoute(recordings, sites);
+  const findings = activeFindings(state);
   return {
     analysis,
     unplacedRecordings: getUnplacedRecordings(recordings, sites),
-    issueProgress: issueProgress(
-      state.issues.filter((issue) => issue.lifecycle?.state !== "archived"),
-    ),
-    openIssues: state.issues.filter(
+    issueProgress: issueProgress(findings),
+    openIssues: findings.filter((issue) => issue.status !== "resolved"),
+    criticalIssues: findings.filter(
       (issue) =>
-        issue.status !== "resolved" && issue.lifecycle?.state !== "archived",
-    ),
-    criticalIssues: state.issues.filter(
-      (issue) =>
-        issue.severity === "critical" &&
-        issue.status !== "resolved" &&
-        issue.lifecycle?.state !== "archived",
+        issue.severity === "critical" && issue.status !== "resolved",
     ),
   };
 }

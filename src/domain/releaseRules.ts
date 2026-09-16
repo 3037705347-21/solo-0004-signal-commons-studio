@@ -9,6 +9,7 @@ import type {
 import { createId } from "./ids";
 import { releaseFingerprint } from "./releaseIdentity";
 import {
+  isLiveRecording,
   isLiveSite,
   releasesReferencingRecording,
 } from "./retentionRegistry";
@@ -21,17 +22,12 @@ export function evaluateRelease(
 ): ReleaseResult {
   const blockers: string[] = [];
   const cautions: string[] = [];
-  const critical = state.issues.filter(
-    (issue) =>
-      issue.severity === "critical" &&
-      issue.status !== "resolved" &&
-      issue.lifecycle?.state !== "archived",
+  const active = state.issues.filter((issue) => isActiveFinding(state, issue));
+  const critical = active.filter(
+    (issue) => issue.severity === "critical" && issue.status !== "resolved",
   );
-  const warnings = state.issues.filter(
-    (issue) =>
-      issue.severity === "warning" &&
-      issue.status !== "resolved" &&
-      issue.lifecycle?.state !== "archived",
+  const warnings = active.filter(
+    (issue) => issue.severity === "warning" && issue.status !== "resolved",
   );
   if (analysis.blockingCount)
     blockers.push(
@@ -136,6 +132,28 @@ export function liveRecordings(state: StudyState) {
 export function liveSites(state: StudyState) {
   return state.sites.filter((site) => siteRetention(site).state !== "archived");
 }
+
+/**
+ * A finding only gates release while it itself is live and the material it
+ * cites is live. Findings left behind by a purged site or clip stay visible
+ * (with their tombstone link) but cannot block a release they can no longer
+ * affect.
+ */
+export function isActiveFinding(
+  state: StudyState,
+  issue: QualityIssue,
+): boolean {
+  if (issue.lifecycle?.state === "archived") return false;
+  if (issue.siteId && !isLiveSite(state, issue.siteId)) return false;
+  if (issue.recordingId && !isLiveRecording(state, issue.recordingId))
+    return false;
+  return true;
+}
+
+/** Findings that participate in the current release decision. */
+export function activeFindings(state: StudyState): QualityIssue[] {
+  return state.issues.filter((issue) => isActiveFinding(state, issue));
+}
 export function buildReleaseSnapshot(
   state: StudyState,
   analysis: RouteAnalysis,
@@ -180,9 +198,8 @@ export function buildReleaseSnapshot(
             Boolean(recording),
           ),
       })),
-    unresolvedIssues: state.issues.filter(
-      (issue) =>
-        issue.status !== "resolved" && issue.lifecycle?.state !== "archived",
+    unresolvedIssues: activeFindings(state).filter(
+      (issue) => issue.status !== "resolved",
     ),
   };
 }

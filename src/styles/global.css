@@ -1123,6 +1123,26 @@ strong {
   align-items: center;
   gap: 4px;
 }
+.issue-meta .issue-link-cleaned {
+  color: #8a8f98;
+  font-style: italic;
+}
+.issue-meta .issue-link-cleaned .badge {
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.placement-stub {
+  opacity: 0.85;
+}
+.placement-stub.purged {
+  border-left: 2px solid #b0b4ab;
+  padding-left: 8px;
+}
+.placement-stub.archived {
+  border-left: 2px solid #c9a24b;
+  padding-left: 8px;
+}
 .review-filters {
   display: flex;
   align-items: end;
@@ -1743,4 +1763,79 @@ strong {
     grid-column: 2;
     justify-self: start;
   }
+}
+
+/* Retention desk */
+.retention-policy {
+  display: grid;
+  gap: 10px;
+}
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.policy-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 6px;
+}
+.policy-card strong {
+  font-size: 13px;
+}
+.policy-card p {
+  margin: 0;
+  color: #73766e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.retention-section {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 20px;
+  display: grid;
+  gap: 14px;
+}
+.retention-intro {
+  margin: 0;
+  color: #73766e;
+  font-size: 12.5px;
+}
+.retention-table {
+  display: grid;
+  gap: 8px;
+}
+.retention-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fcfcfa;
+}
+.retention-row-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.retention-row-main strong {
+  font-size: 13.5px;
+}
+.retention-meta {
+  color: #8a8d85;
+  font: 10.5px "DM Mono";
+}
+.retention-refs {
+  color: #9a6b3f;
+  font-style: normal;
+}
+.retention-actions {
+  display: flex;
+  gap: 6px;
 }

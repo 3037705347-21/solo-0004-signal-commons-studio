@@ -22,6 +22,7 @@ import {
   runRetentionSweep,
   RetentionError,
 } from "../domain/retentionLifecycle";
+import { releasesReferencingRecording } from "../domain/retentionRegistry";
 import type { StudyState } from "../domain/models";
 import type { RetentionTarget, StudyAction } from "./actions";
 
@@ -274,23 +275,38 @@ export function workspaceReducer(
       );
     }
     case "recording/remove": {
-      const withoutPlacement = removeRecordingFromSites(
-        state,
-        action.recordingId,
+      // A direct library removal follows the same reference rules as a
+      // retention purge: route citations and findings keep the id (resolved via
+      // a tombstone) instead of dangling after the clip is gone.
+      const recording = state.recordings.find(
+        (item) => item.id === action.recordingId,
       );
-      return mutate(
-        state,
-        action,
-        regressReadyProject({
-          ...withoutPlacement,
-          recordings: withoutPlacement.recordings.filter(
-            (recording) => recording.id !== action.recordingId,
-          ),
-          issues: withoutPlacement.issues.filter(
-            (issue) => issue.recordingId !== action.recordingId,
-          ),
-        }),
-      );
+      if (!recording) return state;
+      const timestamp = new Date().toISOString();
+      const next: StudyState = {
+        ...state,
+        recordings: state.recordings.filter(
+          (item) => item.id !== action.recordingId,
+        ),
+        tombstones: [
+          ...state.tombstones.filter((item) => item.id !== recording.id),
+          {
+            id: recording.id,
+            kind: "recording",
+            label: recording.title,
+            category:
+              recording.lifecycle?.category ?? "active-recording",
+            purgedAt: timestamp,
+            reason: "manual-purge",
+            referencedByReleaseIds: releasesReferencingRecording(
+              state,
+              recording.id,
+            ),
+            importBatchId: recording.importBatchId,
+          },
+        ],
+      };
+      return mutate(state, action, regressReadyProject(next));
     }
     case "placement/assign":
       return mutate(

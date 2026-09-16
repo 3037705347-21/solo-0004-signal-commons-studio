@@ -235,13 +235,93 @@ describe("restore and re-qualification", () => {
 
 describe("retention sweep", () => {
   it("archives expired unplaced clips and expired resolved findings, but keeps protected material", () => {
-    const result = runRetentionSweep(seed(), NOW);
+    const baseline = seed();
+    const withExpiredFinding: StudyState = {
+      ...baseline,
+      issues: [
+        ...baseline.issues,
+        {
+          id: "issue-expired-resolved",
+          title: "An old resolved note",
+          description: "Resolved long ago and kept past the finding window.",
+          severity: "note",
+          status: "resolved",
+          owner: "Lin Qiao",
+          createdAt: "2025-12-01T00:00:00.000Z",
+          updatedAt: "2025-12-01T00:00:00.000Z",
+          resolvedAt: "2025-12-01T00:00:00.000Z",
+          lifecycle: {
+            category: "quality-finding",
+            state: "expired",
+            anchor: "2025-12-01T00:00:00.000Z",
+          },
+        },
+      ],
+    };
+    const result = runRetentionSweep(withExpiredFinding, NOW);
     expect(result.archivedRecordings).toBeGreaterThanOrEqual(1);
     expect(result.archivedIssues).toBeGreaterThanOrEqual(1);
-    // The seeded archived site + archived clips are already archived; purging
-    // the harbor site is allowed, but its purged clip citation is protected by
-    // the historical release, which only affects clips, not sites.
+    // The seeded archived site is purged; the retirement finding that cites
+    // it survives because purge never cascade-deletes findings.
     expect(result.purgedSites).toBeGreaterThanOrEqual(1);
+    const retirementFinding = result.state.issues.find(
+      (issue) => issue.id === "issue-old-harbor-note",
+    );
+    expect(retirementFinding).toBeTruthy();
+    expect(retirementFinding?.siteId).toBe("site-old-harbor");
+    // The site id still resolves (via tombstone) after the site was purged.
+    const siteResolved = resolveSite(result.state, "site-old-harbor");
+    expect(siteResolved?.availability).toBe("purged");
+  });
+
+  it("keeps a finding and its link when the cited site is purged", () => {
+    const state = seed();
+    // Archive then purge the old harbor site.
+    const purged = purgeSite(state, "site-old-harbor", NOW);
+    const finding = purged.issues.find(
+      (issue) => issue.id === "issue-old-harbor-note",
+    );
+    expect(finding).toBeTruthy();
+    expect(finding?.siteId).toBe("site-old-harbor");
+    expect(finding?.recordingId).toBe("rec-rain-basement");
+    const site = resolveSite(purged, "site-old-harbor");
+    const clip = resolveRecording(purged, "rec-rain-basement");
+    expect(site?.availability).toBe("purged");
+    expect(site?.stub?.label).toBe("Harbor loop (paused)");
+    expect(clip?.availability).toBe("purged");
+  });
+
+  it("keeps a finding and its link when the cited clip is purged", () => {
+    const baseline = seed();
+    const state: StudyState = {
+      ...baseline,
+      issues: [
+        ...baseline.issues,
+        {
+          id: "issue-belltower-consent",
+          title: "Belltower consent follow-up",
+          description:
+            "Documents why the scouting recording could not be used in a route.",
+          severity: "warning",
+          status: "resolved",
+          recordingId: "rec-belltower",
+          owner: "Amina Patel",
+          createdAt: "2026-01-10T00:00:00.000Z",
+          updatedAt: "2026-02-01T00:00:00.000Z",
+          resolvedAt: "2026-02-01T00:00:00.000Z",
+        },
+      ],
+    };
+    const archived = archiveRecording(state, "rec-belltower", NOW);
+    const purged = purgeRecording(archived, "rec-belltower", NOW);
+    const finding = purged.issues.find(
+      (issue) => issue.id === "issue-belltower-consent",
+    );
+    expect(finding).toBeTruthy();
+    expect(finding?.recordingId).toBe("rec-belltower");
+    expect(resolveRecording(purged, "rec-belltower")?.availability).toBe(
+      "purged",
+    );
   });
 
   it("does not purge records it only archived during the same sweep", () => {

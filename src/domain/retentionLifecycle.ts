@@ -165,8 +165,9 @@ export function purgeRecording(
   return {
     ...state,
     recordings: state.recordings.filter((item) => item.id !== recordingId),
-    // Route lists keep the id; resolution now serves the tombstone stub.
-    issues: state.issues.filter((issue) => issue.recordingId !== recordingId),
+    // Route lists and finding links keep the id; they resolve through the
+    // tombstone registry instead of dangling. Findings have their own
+    // retention lifecycle and are never cascade-deleted with a clip.
     tombstones: dedupeTombstones([...state.tombstones, tombstone]),
   };
 }
@@ -279,7 +280,9 @@ export function purgeSite(
   return {
     ...state,
     sites: state.sites.filter((item) => item.id !== siteId),
-    issues: state.issues.filter((issue) => issue.siteId !== siteId),
+    // Findings that documented why a site was stopped outlive the site: they
+    // keep their siteId and resolve to its tombstone so reviewers can still
+    // see the retirement reason and any linked clip.
     tombstones: dedupeTombstones([...state.tombstones, tombstone]),
   };
 }

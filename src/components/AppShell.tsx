@@ -1,4 +1,5 @@
 import {
+  Archive,
   BookOpen,
   Boxes,
   ChevronRight,
@@ -40,6 +41,12 @@ const navigation = [
     label: "Scenario lab",
     icon: Gauge,
     detail: "Field planning",
+  },
+  {
+    to: "/retention",
+    label: "Retention desk",
+    icon: Archive,
+    detail: "Lifecycle & lineage",
   },
 ];
 

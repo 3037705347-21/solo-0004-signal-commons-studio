@@ -40,6 +40,7 @@ import {
   liveRecordings,
   liveSites,
 } from "../../domain/releaseRules";
+import { resolveRecording, resolveSite } from "../../domain/retentionRegistry";
 import {
   buildSiteChecklist,
   serializeSiteChecklistCsv,
@@ -94,22 +95,49 @@ export function QualityPage() {
     window.setTimeout(() => setToast(null), 2600);
   };
 
-  const sites = useMemo(() => sortSites(liveSites(state)), [state]);
+  // The site list includes live sites plus cleaned sites still cited by a
+  // finding, so retirement evidence stays reachable from the desk filter.
+  const liveSiteList = useMemo(() => sortSites(liveSites(state)), [state]);
+  const cleanedSiteEntries = useMemo(() => {
+    const cited = new Set<string>();
+    for (const issue of state.issues) {
+      if (issue.lifecycle?.state === "archived") continue;
+      if (issue.siteId) cited.add(issue.siteId);
+    }
+    return [...cited]
+      .filter((id) => !state.sites.some((site) => site.id === id))
+      .map((id) => resolveSite(state, id))
+      .filter((resolved) => resolved?.availability === "purged")
+      .map((resolved) => ({
+        id: resolved!.id,
+        name: resolved!.stub?.label ?? "Cleaned site",
+      }));
+  }, [state]);
+  const sites = [...liveSiteList, ...cleanedSiteEntries];
   const selectedSite = sites.find((site) => site.id === reviewUi.siteId);
+  const selectedLiveSite = liveSiteList.find(
+    (site) => site.id === reviewUi.siteId,
+  );
+  const selectedSiteCleaned = cleanedSiteEntries.some(
+    (site) => site.id === reviewUi.siteId,
+  );
   const filter = reviewUi.status;
 
   const scopedIssues = useMemo<QualityIssue[]>(() => {
-    const liveIssues = state.issues.filter(
+    // Archived findings themselves are hidden from the desk; findings linked
+    // to cleaned material stay visible so the retirement reason is reviewable.
+    const deskIssues = state.issues.filter(
       (issue) => issue.lifecycle?.state !== "archived",
     );
-    if (!selectedSite) return liveIssues;
-    return liveIssues.filter(
+    if (!selectedSite) return deskIssues;
+    const placedIds = new Set(selectedLiveSite?.recordingIds ?? []);
+    return deskIssues.filter(
       (issue) =>
         issue.siteId === selectedSite.id ||
         (Boolean(issue.recordingId) &&
-          selectedSite.recordingIds.includes(issue.recordingId as string)),
+          placedIds.has(issue.recordingId as string)),
     );
-  }, [state.issues, selectedSite]);
+  }, [state.issues, selectedSite, selectedLiveSite]);
 
   const counts = {
     all: scopedIssues.length,
@@ -123,8 +151,9 @@ export function QualityPage() {
   const filtered = scopedIssues.filter(
     (issue) => filter === "all" || issue.status === filter,
   );
-  const checklist = selectedSite
-    ? buildSiteChecklist(state, selectedSite.id)
+  // Field checklists only exist for live sites with ordered placements.
+  const checklist = selectedLiveSite
+    ? buildSiteChecklist(state, selectedLiveSite.id)
     : null;
 
   const runCheck = () => setReadiness(checkReadiness());
@@ -141,10 +170,10 @@ export function QualityPage() {
     notify("Snapshot downloaded.");
   };
   const exportChecklist = () => {
-    if (!selectedSite || !checklist) return;
+    if (!selectedLiveSite || !checklist) return;
     downloadTextFile(
       serializeSiteChecklistCsv(checklist),
-      siteChecklistFileName(selectedSite),
+      siteChecklistFileName(selectedLiveSite),
       "text/csv;charset=utf-8",
     );
     notify("Site checklist downloaded.");
@@ -265,17 +294,28 @@ export function QualityPage() {
             onChange={(event) => setSiteId(event.target.value)}
           >
             <option value="">All sites — overview</option>
-            {sites.map((site) => (
+            {liveSiteList.map((site) => (
               <option key={site.id} value={site.id}>
                 {site.name}
               </option>
             ))}
+            {cleanedSiteEntries.length > 0 && (
+              <optgroup label="Cleaned sites (retained findings)">
+                {cleanedSiteEntries.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name} — cleaned
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </SelectField>
         </div>
         <span className="review-hint">
           <Sparkles size={14} />{" "}
           {selectedSite
-            ? "Findings and the field checklist are scoped to this site."
+            ? selectedSiteCleaned
+              ? "Showing retained findings for a site that has been cleaned."
+              : "Findings and the field checklist are scoped to this site."
             : "Critical findings block readiness"}
         </span>
       </div>
@@ -299,6 +339,7 @@ export function QualityPage() {
         {filtered.map((issue) => (
           <IssueRow
             key={issue.id}
+            state={state}
             issue={issue}
             onTransition={(status) => transitionQualityIssue(issue.id, status)}
           />
@@ -451,9 +492,11 @@ function SiteChecklistCard({
 }
 
 function IssueRow({
+  state,
   issue,
   onTransition,
 }: {
+  state: ReturnType<typeof useStudy>["state"];
   issue: QualityIssue;
   onTransition: (status: QualityIssue["status"]) => {
     ok: boolean;
@@ -480,6 +523,12 @@ function IssueRow({
       window.setTimeout(() => setError(null), 2500);
     }
   };
+
+  const resolvedSite = issue.siteId ? resolveSite(state, issue.siteId) : null;
+  const resolvedRecording = issue.recordingId
+    ? resolveRecording(state, issue.recordingId)
+    : null;
+
   return (
     <article className={`issue-row issue-${issue.severity}`}>
       <div className="issue-severity">
@@ -513,12 +562,53 @@ function IssueRow({
           <span>
             <UserRound size={13} /> {issue.owner}
           </span>
-          {issue.siteId && (
-            <span>
-              <MapPin size={13} /> Site linked
+          {resolvedSite && (
+            <span
+              className={
+                resolvedSite.availability === "live"
+                  ? undefined
+                  : "issue-link-cleaned"
+              }
+              title={
+                resolvedSite.availability === "purged"
+                  ? `Site cleaned on ${formatDate(resolvedSite.stub?.tombstone?.purgedAt ?? "")} — finding retained as retirement evidence`
+                  : "Site archived"
+              }
+            >
+              <MapPin size={13} />{" "}
+              {resolvedSite.site?.name ?? resolvedSite.stub?.label ?? "Site"}
+              {resolvedSite.availability === "purged" && (
+                <Badge tone="neutral">Site cleaned</Badge>
+              )}
+              {resolvedSite.availability === "archived" && (
+                <Badge tone="neutral">Site archived</Badge>
+              )}
             </span>
           )}
-          {issue.recordingId && <span>Clip linked</span>}
+          {resolvedRecording && (
+            <span
+              className={
+                resolvedRecording.availability === "live"
+                  ? undefined
+                  : "issue-link-cleaned"
+              }
+              title={
+                resolvedRecording.availability === "purged"
+                  ? "Clip cleaned from the library — link retained via release lineage/tombstone"
+                  : "Clip archived"
+              }
+            >
+              {resolvedRecording.recording?.title ??
+                resolvedRecording.stub?.label ??
+                "Clip"}
+              {resolvedRecording.availability === "purged" && (
+                <Badge tone="neutral">Clip cleaned</Badge>
+              )}
+              {resolvedRecording.availability === "archived" && (
+                <Badge tone="neutral">Clip archived</Badge>
+              )}
+            </span>
+          )}
           <span>Updated {formatDate(issue.updatedAt)}</span>
         </div>
         {error && <div className="field-error">{error}</div>}
