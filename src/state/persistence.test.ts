@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   clearWorkspace,
+  commitWorkspace,
+  loadDrafts,
   loadStudy,
+  loadConflicts,
+  saveConflicts,
+  saveDrafts,
   saveStudy,
   STORAGE_BACKUP_KEY,
   STORAGE_KEY,
 } from "./persistence";
+import { createId } from "../domain/ids";
 import { createSeedStudy } from "./seed";
 
 describe("workspace persistence", () => {
@@ -88,5 +94,113 @@ describe("workspace persistence", () => {
     values.set(STORAGE_KEY, "{broken primary");
 
     expect(loadStudy(storage).project.title).toBe("Recovered baseline");
+  });
+
+  function makeMemoryStorage() {
+    const values = new Map<string, string>();
+    return {
+      storage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          values.set(key, value);
+        },
+        removeItem: (key: string) => {
+          values.delete(key);
+        },
+      } as unknown as Storage,
+    };
+  }
+
+  it("refuses to overwrite a record another tab committed after the expected revision", () => {
+    const { storage } = makeMemoryStorage();
+    const baseline = createSeedStudy();
+    const committed = {
+      ...structuredClone(baseline),
+      revision: 5,
+      updatedAt: "2026-09-12T09:00:00.000Z",
+    };
+    saveStudy(committed, storage);
+    const localEdit = {
+      ...structuredClone(baseline),
+      revision: 1,
+      updatedAt: "2026-09-12T08:00:00.000Z",
+    };
+
+    const outcome = commitWorkspace(
+      localEdit,
+      `${baseline.revision}|${baseline.updatedAt}`,
+      storage,
+    );
+
+    expect(outcome.status).toBe("diverged");
+    if (outcome.status === "diverged")
+      expect(outcome.committed.revision).toBe(5);
+    expect(loadStudy(storage).revision).toBe(5);
+  });
+
+  it("commits when the stored record still matches the expected signature", () => {
+    const { storage } = makeMemoryStorage();
+    const baseline = createSeedStudy();
+    saveStudy(baseline, storage);
+    const next = {
+      ...structuredClone(baseline),
+      revision: 1,
+      updatedAt: "2026-09-12T08:00:00.000Z",
+    };
+
+    const outcome = commitWorkspace(
+      next,
+      `${baseline.revision}|${baseline.updatedAt}`,
+      storage,
+    );
+    expect(outcome.status).toBe("committed");
+    expect(loadStudy(storage).revision).toBe(1);
+  });
+
+  it("round trips conflict records and parked drafts with their state snapshots", () => {
+    const base = createSeedStudy();
+    const ours = {
+      ...structuredClone(base),
+      revision: 6,
+      updatedAt: "2026-09-12T08:00:00.000Z",
+    };
+    const theirs = {
+      ...structuredClone(base),
+      revision: 7,
+      updatedAt: "2026-09-12T09:00:00.000Z",
+    };
+    const conflict = {
+      id: createId("conflict"),
+      detectedAt: "2026-09-12T09:01:00.000Z",
+      originId: "tab-a",
+      originLabel: "This tab",
+      commandSummary: "Saved clip",
+      baseRevision: 5,
+      oursRevision: 6,
+      theirsRevision: 7,
+      base,
+      ours,
+      theirs,
+    };
+    const { storage } = makeMemoryStorage();
+    saveConflicts([conflict], storage);
+    const reloaded = loadConflicts(storage);
+    expect(reloaded).toHaveLength(1);
+    expect(reloaded[0].theirsRevision).toBe(7);
+    expect(reloaded[0].ours.revision).toBe(6);
+
+    const draft = {
+      id: createId("draft"),
+      createdAt: "2026-09-12T09:02:00.000Z",
+      originId: "tab-a",
+      commandSummary: "Saved clip",
+      baseRevision: 5,
+      theirsRevision: 7,
+      base,
+      ours,
+      theirs,
+    };
+    saveDrafts([draft], storage);
+    expect(loadDrafts(storage)[0].commandSummary).toBe("Saved clip");
   });
 });

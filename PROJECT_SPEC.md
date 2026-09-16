@@ -47,7 +47,8 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Study state transitions are `draft -> review -> ready`; a blocking change regresses a ready study to `review`.
 - Persisted state uses an explicit schema version, a monotonically increasing content revision, and a bounded command audit log.
 - State-changing commands carry a command ID, origin tab, issue time, and expected revision. Repeated command IDs are idempotent, while stale revisions are rejected and recorded without changing content.
-- Browser tabs synchronize committed workspace records through storage events and reload the checksummed primary or backup record.
+- A commit whose tab missed another tab's committed revision is refused at the storage boundary and recorded as a conflict with base/late/committed snapshots. A conflict center shows the three-way change explanation and offers four outcomes: keep the committed version, keep the late save, merge per-row choices (independent edits fold together automatically), or park the late save as a resumable draft. Every outcome is a committed, audited revision; outcomes that change content regress a ready study to review and mark the frozen release stale, while keeping the committed version preserves the current release.
+- Browser tabs synchronize committed workspace records through storage events and reload the checksummed primary or backup record. Pending conflicts rebase their committed snapshot onto newer commits so a late resolution cannot resurrect superseded content.
 - Version 1 browser data is migrated into the current schema; nested invalid records are rejected and dangling or duplicate route references are repaired during startup validation.
 - Persistence writes a checksummed record plus the previous primary record as a backup. A corrupt or incomplete primary record falls back to the last valid backup before using sample data.
 - Recording catalogue IDs are normalized and unique.

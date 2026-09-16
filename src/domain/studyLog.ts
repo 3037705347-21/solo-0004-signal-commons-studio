@@ -27,6 +27,14 @@ export function describeAction(action: StudyAction): string {
       return "Reset workspace to sample plan";
     case "workspace/sync":
       return "Synchronized workspace from another tab";
+    case "conflict/resolve":
+      return action.mode === "theirs"
+        ? `Conflict resolved by keeping the committed version (${action.conflict.commandSummary})`
+        : action.mode === "ours"
+          ? `Conflict resolved by keeping this tab's edit (${action.conflict.commandSummary})`
+          : action.mode === "merge"
+            ? `Conflict resolved by merging both edits (${action.conflict.commandSummary})`
+            : `Conflict parked as a draft (${action.conflict.commandSummary})`;
   }
 }
 

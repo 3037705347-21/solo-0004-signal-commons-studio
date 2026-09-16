@@ -1,4 +1,5 @@
 import { createId } from "../domain/ids";
+import { mergeStudyChange, reconcileResolutionOutcome } from "../domain/conflictResolution";
 import { canPlaceRecording } from "../domain/routeAnalysis";
 import { compactLog, makeLogEntry } from "../domain/studyLog";
 import {
@@ -327,8 +328,58 @@ export function workspaceReducer(
         state.revision,
       );
     }
+    case "conflict/resolve": {
+      const meta = action.meta;
+      if (
+        meta &&
+        state.auditLog.some((entry) => entry.commandId === meta.commandId)
+      )
+        return state;
+      const { conflict, mode } = action;
+      let resolved: StudyState;
+      if (mode === "theirs" || mode === "draft") {
+        // The committed tab's content becomes the single source of truth; the
+        // parked draft lives outside the workspace document.
+        resolved = conflict.theirs;
+      } else if (mode === "ours") {
+        resolved = {
+          ...conflict.ours,
+          release: conflict.theirs.release,
+          project: {
+            ...conflict.ours.project,
+            lastReadinessCheck:
+              conflict.theirs.project.lastReadinessCheck ??
+              conflict.ours.project.lastReadinessCheck,
+          },
+        };
+      } else {
+        const { merged } = mergeStudyChange(
+          conflict.base,
+          conflict.ours,
+          conflict.theirs,
+          action.mergeChoices,
+        );
+        resolved = {
+          ...merged,
+          release: conflict.theirs.release,
+          project: {
+            ...merged.project,
+            lastReadinessCheck:
+              conflict.theirs.project.lastReadinessCheck ??
+              merged.project.lastReadinessCheck,
+          },
+        };
+      }
+      const contentFromTheirs =
+        mode === "theirs" || mode === "draft";
+      const reconciled = reconcileResolutionOutcome(
+        resolved,
+        !contentFromTheirs,
+      );
+      return finalizeAction(reconciled, action, state.revision + 1);
+    }
     case "workspace/reset":
-      return action.state;
+      return finalizeAction(action.state, action, state.revision + 1);
     case "workspace/sync":
       return action.state;
     default:

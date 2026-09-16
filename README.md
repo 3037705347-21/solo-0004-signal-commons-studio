@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:4173`. The study is persisted in browser local storage under `signal-commons.workspace.v1`; the storage key is retained for compatibility while stored documents migrate to the current schema. A checksummed previous record is retained under `signal-commons.workspace.backup.v1` for recovery, and committed changes synchronize across open tabs. No network services or environment variables are required. Use the sidebar **Reset sample study** action to restore the built-in study.
+Open `http://127.0.0.1:4173`. The study is persisted in browser local storage under `signal-commons.workspace.v1`; the storage key is retained for compatibility while stored documents migrate to the current schema. A checksummed previous record is retained under `signal-commons.workspace.backup.v1` for recovery, and committed changes synchronize across open tabs. When two tabs commit against the same base revision, the later commit is refused rather than overwriting the other save; a topbar conflict center shows what each side changed and lets the team keep the committed version, keep the late save, merge row by row, or park the late save as a resumable draft. Unresolved conflicts are kept under `signal-commons.conflicts.v1` and parked drafts under `signal-commons.conflict-drafts.v1`. No network services or environment variables are required. Use the sidebar **Reset sample study** action to restore the built-in study.
 
 ## Validation commands
 
@@ -27,6 +27,7 @@ npm run check
 - `src/features/library`: searchable signal library and validated recording editor.
 - `src/features/route`: listening-site planning, placement transitions, and constraint feedback.
 - `src/features/quality`: evidence finding lifecycle, site field checklists, release gate, and snapshot export.
+- `src/features/conflict`: concurrent-edit conflict center with three-way change review, per-row merge choices, and a parked draft shelf.
 - `src/features/scenarios`: non-mutating listener scenario controls and derived metrics.
 - `src/components`: shared shell, navigation, forms, badges, metrics, dialogs, and visual primitives.
 

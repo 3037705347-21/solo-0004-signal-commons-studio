@@ -1,9 +1,40 @@
 import { describe, expect, it } from "vitest";
 import { analyzeRoute } from "../domain/routeAnalysis";
 import { createReleaseRecord } from "../domain/releaseRules";
-import type { ReleaseResult } from "../domain/models";
+import type {
+  ConflictRecord,
+  ReleaseResult,
+  StudyState,
+} from "../domain/models";
 import { createSeedStudy } from "./seed";
 import { workspaceReducer } from "./reducer";
+
+function conflictFrom(
+  base: StudyState,
+  ours: StudyState,
+  theirs: StudyState,
+): ConflictRecord {
+  return {
+    id: "conflict-reducer",
+    detectedAt: "2026-09-12T10:00:00.000Z",
+    originId: "tab-a",
+    originLabel: "This tab",
+    commandSummary: "Saved clip SC-26-001",
+    baseRevision: base.revision,
+    oursRevision: ours.revision,
+    theirsRevision: theirs.revision,
+    base,
+    ours,
+    theirs,
+  };
+}
+
+const resolveMeta = {
+  commandId: "command-resolve",
+  expectedRevision: 0,
+  originId: "tab-a",
+  issuedAt: "2026-09-12T10:05:00.000Z",
+};
 
 describe("workspace reducer boundaries", () => {
   it("rejects a placement that would exceed a site clip limit", () => {
@@ -150,5 +181,90 @@ describe("workspace reducer boundaries", () => {
     expect(second.supersedes).toBe(first.id);
     expect(second.snapshot?.releaseId).toBe(second.id);
     expect(second.snapshot?.releaseSequence).toBe(2);
+  });
+
+  it("resolves a conflict by keeping the committed version and appending an audit trail", () => {
+    const base = createSeedStudy();
+    const ours = {
+      ...base,
+      revision: 1,
+      updatedAt: "2026-09-12T09:00:00.000Z",
+      preferences: { ...base.preferences, listenerCount: 9 },
+    };
+    const theirs = {
+      ...base,
+      revision: 2,
+      updatedAt: "2026-09-12T09:05:00.000Z",
+      preferences: { ...base.preferences, listenerCount: 14 },
+    };
+    const resolved = workspaceReducer(theirs, {
+      type: "conflict/resolve",
+      conflict: conflictFrom(base, ours, theirs),
+      mode: "theirs",
+      meta: resolveMeta,
+    });
+
+    expect(resolved.revision).toBe(3);
+    expect(resolved.preferences.listenerCount).toBe(14);
+    expect(resolved.auditLog.at(-1)).toMatchObject({
+      action: "conflict/resolve",
+      revision: 3,
+      status: "applied",
+    });
+  });
+
+  it("replays a conflict resolution command id only once", () => {
+    const base = createSeedStudy();
+    const theirs = {
+      ...base,
+      revision: 2,
+      updatedAt: "2026-09-12T09:05:00.000Z",
+    };
+    const action = {
+      type: "conflict/resolve" as const,
+      conflict: conflictFrom(base, base, theirs),
+      mode: "theirs" as const,
+      meta: resolveMeta,
+    };
+    const once = workspaceReducer(theirs, action);
+    const twice = workspaceReducer(once, action);
+    expect(twice.revision).toBe(once.revision);
+    expect(
+      once.auditLog.filter((entry) => entry.commandId === "command-resolve"),
+    ).toHaveLength(1);
+  });
+
+  it("merges both sides when resolving with merge choices", () => {
+    const base = createSeedStudy();
+    const ours = {
+      ...base,
+      revision: 1,
+      updatedAt: "2026-09-12T09:00:00.000Z",
+      recordings: base.recordings.map((recording) =>
+        recording.id === "rec-underpass"
+          ? { ...recording, title: "Our underpass title" }
+          : recording,
+      ),
+    };
+    const theirs = {
+      ...base,
+      revision: 2,
+      updatedAt: "2026-09-12T09:05:00.000Z",
+      preferences: { ...base.preferences, listenerCount: 15 },
+    };
+    const resolved = workspaceReducer(theirs, {
+      type: "conflict/resolve",
+      conflict: conflictFrom(base, ours, theirs),
+      mode: "merge",
+      mergeChoices: { "recordings:rec-underpass": "ours" },
+      meta: { ...resolveMeta, commandId: "command-merge" },
+    });
+
+    expect(
+      resolved.recordings.find((recording) => recording.id === "rec-underpass")
+        ?.title,
+    ).toBe("Our underpass title");
+    expect(resolved.preferences.listenerCount).toBe(15);
+    expect(resolved.revision).toBe(3);
   });
 });

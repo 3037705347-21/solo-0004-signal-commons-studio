@@ -6,6 +6,8 @@ import {
   Clock,
   Download,
   FileWarning,
+  GitMerge,
+  Inbox,
   ListChecks,
   MapPin,
   Plus,
@@ -192,6 +194,7 @@ export function QualityPage() {
                 ? "The study changed after the last successful check. Run it again before exporting."
                 : `${readiness.blockers.length} blocking condition${readiness.blockers.length === 1 ? "" : "s"} prevent this plan from being marked ready.`}
           </p>
+          <ConflictResolutionLine releaseCurrent={exportReady} />
         </div>
         <div className="readiness-score">
           <strong>{readiness.score}</strong>
@@ -439,6 +442,50 @@ function SiteChecklistCard({
         </span>
       </div>
     </section>
+  );
+}
+
+function ConflictResolutionLine({
+  releaseCurrent,
+}: {
+  releaseCurrent: boolean;
+}) {
+  const { state, conflicts, openConflict } = useStudy();
+  const resolution = [...state.auditLog]
+    .reverse()
+    .find((entry) => entry.action === "conflict/resolve");
+  if (conflicts.length > 0) {
+    return (
+      <button
+        type="button"
+        className="conflict-inline-link"
+        onClick={() => openConflict(conflicts[0].id)}
+      >
+        <AlertCircle size={13} />
+        {conflicts.length === 1
+          ? "1 editing conflict is unresolved — the other tab's change is currently published."
+          : `${conflicts.length} editing conflicts are unresolved — decide what to keep.`}
+      </button>
+    );
+  }
+  if (!resolution) return null;
+  const parked = resolution.summary.startsWith("Conflict parked");
+  return (
+    <div
+      className={`conflict-resolution-banner ${
+        releaseCurrent ? "current" : "stale"
+      }`}
+    >
+      {parked ? <Inbox size={14} /> : <GitMerge size={14} />}
+      <span>
+        {resolution.summary}
+        {!releaseCurrent && !parked
+          ? " That resolution changed study content, so the frozen release is stale and export waits for a fresh readiness check."
+          : parked
+            ? " The committed version remains published; resume the draft from the topbar when ready."
+            : " The release matches the resolved content."}
+      </span>
+    </div>
   );
 }
 

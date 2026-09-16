@@ -1563,6 +1563,330 @@ strong {
   background: #fff0d3;
   border: 1px solid #ead09c;
 }
+.conflict-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.conflict-entry .button {
+  padding: 6px 9px;
+  gap: 6px;
+}
+.conflict-alert-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 5px;
+  border: 1px solid #e3b34f;
+  background: #fdf3df;
+  color: #8d611b;
+  font: 600 12px/1 "Inter", sans-serif;
+  cursor: pointer;
+}
+.conflict-alert-button:hover {
+  background: #fbe9c4;
+}
+.conflict-pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: 7px;
+  border: 1px solid rgba(227, 179, 79, 0.7);
+  animation: conflict-pulse 1.8s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes conflict-pulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.07);
+  }
+}
+.conflict-preamble {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f1f0eb;
+  margin-bottom: 16px;
+}
+.conflict-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 11px "DM Mono";
+  color: #6d7068;
+}
+.conflict-command {
+  font-size: 13px;
+  color: #4f534c;
+}
+.conflict-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.conflict-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.conflict-count.ours {
+  background: #fde7d8;
+  color: #9c4f2c;
+}
+.conflict-count.theirs {
+  background: #e3edf6;
+  color: #33587d;
+}
+.conflict-count.clash {
+  background: #f8dada;
+  color: #91352f;
+}
+.conflict-revisions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8b8e87;
+}
+.conflict-diff,
+.conflict-merge {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6d7068;
+}
+.diff-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.diff-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diff-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.6fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 5px;
+  background: #fff;
+}
+.diff-row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.diff-row-main strong {
+  font-size: 13px;
+}
+.diff-row-main small {
+  color: #7c8078;
+  font-size: 11px;
+}
+.diff-ours {
+  border-left-color: #d7654e;
+}
+.diff-theirs {
+  border-left-color: #3a6f9e;
+}
+.diff-agreed {
+  border-left-color: #2f7c75;
+}
+.diff-conflict {
+  border-left-color: #b6423b;
+  background: #fdf6f5;
+}
+.diff-row-sides {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.diff-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-side-ours {
+  background: #fde7d8;
+  color: #9c4f2c;
+}
+.diff-side-theirs {
+  background: #e3edf6;
+  color: #33587d;
+}
+.merge-hint {
+  font-size: 12px;
+  color: #5f635c;
+}
+.merge-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.merge-note {
+  color: #2f7c75 !important;
+}
+.merge-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.merge-toggle button {
+  padding: 6px 12px;
+  border: 0;
+  background: #f8f7f2;
+  font: 600 11px "Inter", sans-serif;
+  color: #5f635c;
+  cursor: pointer;
+}
+.merge-toggle button + button {
+  border-left: 1px solid var(--line);
+}
+.merge-toggle button.selected {
+  background: #2f3a36;
+  color: #f8f7f2;
+}
+.conflict-release-note {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: #fff0d3;
+  color: #8d611b;
+  font-size: 12px;
+}
+.conflict-release-note svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.conflict-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.conflict-switcher button {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8f7f2;
+  font: 600 11px "DM Mono";
+  color: #5f635c;
+  cursor: pointer;
+}
+.conflict-switcher button.selected {
+  background: #2f3a36;
+  color: #f8f7f2;
+  border-color: #2f3a36;
+}
+.draft-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+.draft-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+}
+.draft-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.draft-empty {
+  font-size: 13px;
+  color: #5f635c;
+  padding: 8px 2px;
+}
+.conflict-toast {
+  align-items: start;
+  max-width: 380px;
+  line-height: 1.45;
+}
+.conflict-toast-link {
+  display: inline-block;
+  margin-left: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.conflict-resolution-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.conflict-resolution-banner.stale {
+  background: #fff0d3;
+  border: 1px solid #ead09c;
+  color: #8d611b;
+}
+.conflict-resolution-banner.current {
+  background: #daf0e8;
+  border: 1px solid #b7ddcf;
+  color: #205c57;
+}
+.conflict-inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #91352f;
+  font: 600 12px/1.4 "Inter", sans-serif;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
 @media (max-width: 1000px) {
   .sidebar {
     width: 210px;

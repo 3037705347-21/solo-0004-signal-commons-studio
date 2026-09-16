@@ -12,6 +12,7 @@ import {
   SunMedium,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
+import { ConflictCenter } from "../features/conflict/ConflictCenter";
 import { useStudy } from "../state/StudyContext";
 import { Badge } from "./Badge";
 import { Button } from "./Button";
@@ -126,6 +127,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <strong>{active.label}</strong>
           </div>
           <div className="topbar-actions">
+            <ConflictCenter />
             <Badge
               tone={state.project.stage === "ready" ? "positive" : "warning"}
             >

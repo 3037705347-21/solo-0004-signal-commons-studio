@@ -105,6 +105,85 @@ export interface StudyState {
   lastSavedAt?: string;
 }
 
+export type ConflictSide = "base" | "ours" | "theirs";
+export type ConflictRowStatus =
+  | "ours-only"
+  | "theirs-only"
+  | "unchanged"
+  | "agreed"
+  | "conflict";
+export type ConflictSection = "recordings" | "sites" | "issues" | "planning";
+export type MergeChoice = "ours" | "theirs";
+export type ConflictResolutionMode = "theirs" | "ours" | "merge" | "draft";
+
+export interface ConflictRow {
+  id: string;
+  section: ConflictSection;
+  label: string;
+  detail?: string;
+  status: ConflictRowStatus;
+  baseValue?: string;
+  oursValue?: string;
+  theirsValue?: string;
+}
+
+export interface MergeConflictRow extends ConflictRow {
+  /** Rows that both sides changed differently must be resolved explicitly. */
+  resolvable: boolean;
+  choice: MergeChoice;
+}
+
+export interface MergeReport {
+  sections: Array<{
+    section: ConflictSection;
+    label: string;
+    conflictCount: number;
+    autoCount: number;
+  }>;
+}
+
+export interface StudyChangeExplanation {
+  rows: ConflictRow[];
+  oursOnlyCount: number;
+  theirsOnlyCount: number;
+  agreedCount: number;
+  conflictCount: number;
+}
+
+export interface StudyMergeResult {
+  merged: StudyState;
+  rows: MergeConflictRow[];
+  report: MergeReport;
+}
+
+/** A detected concurrent edit, persisted until a teammate chooses an outcome. */
+export interface ConflictRecord {
+  id: string;
+  detectedAt: string;
+  originId: string;
+  originLabel: string;
+  commandSummary: string;
+  baseRevision: number;
+  oursRevision: number;
+  theirsRevision: number;
+  base: StudyState;
+  ours: StudyState;
+  theirs: StudyState;
+}
+
+/** A local edit parked via "save my version as a draft". */
+export interface ConflictDraft {
+  id: string;
+  createdAt: string;
+  originId: string;
+  commandSummary: string;
+  baseRevision: number;
+  theirsRevision: number;
+  base: StudyState;
+  ours: StudyState;
+  theirs: StudyState;
+}
+
 export interface RecordingDraft {
   catalogId: string;
   title: string;

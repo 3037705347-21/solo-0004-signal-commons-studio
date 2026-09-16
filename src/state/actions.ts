@@ -1,4 +1,8 @@
 import type {
+  ConflictDraft,
+  ConflictRecord,
+  ConflictResolutionMode,
+  MergeChoice,
   Recording,
   IssueStatus,
   ReleaseRecord,
@@ -39,6 +43,13 @@ type StudyActionPayload =
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
   | { type: "project/readiness"; release: ReleaseRecord }
+  | {
+      type: "conflict/resolve";
+      conflict: ConflictRecord;
+      mode: ConflictResolutionMode;
+      mergeChoices?: Record<string, MergeChoice>;
+      draft?: ConflictDraft;
+    }
   | { type: "workspace/reset"; state: StudyState }
   | { type: "workspace/sync"; state: StudyState };
 

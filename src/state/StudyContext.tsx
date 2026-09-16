@@ -13,6 +13,7 @@ import {
   recordingFromDraft,
   validateRecordingDraft,
 } from "../domain/recordingValidation";
+import { createConflictDraft } from "../domain/conflictResolution";
 import { createId } from "../domain/ids";
 import { analyzeRoute } from "../domain/routeAnalysis";
 import {
@@ -21,6 +22,10 @@ import {
   isReleaseCurrent,
 } from "../domain/releaseRules";
 import type {
+  ConflictDraft,
+  ConflictRecord,
+  ConflictResolutionMode,
+  MergeChoice,
   Recording,
   RecordingDraft,
   IssueDraft,
@@ -31,7 +36,17 @@ import type {
   StudyState,
 } from "../domain/models";
 import { workspaceReducer } from "./reducer";
-import { loadStudy, saveStudy, STORAGE_KEY } from "./persistence";
+import {
+  commitWorkspace,
+  loadDrafts,
+  loadStudy,
+  loadConflicts,
+  saveDrafts,
+  saveConflicts,
+  STORAGE_KEY,
+  CONFLICTS_KEY,
+  DRAFTS_KEY,
+} from "./persistence";
 import { createSeedStudy } from "./seed";
 import type { CommandMeta, StudyAction } from "./actions";
 
@@ -42,9 +57,28 @@ interface CommandResult<T = undefined> {
   message?: string;
 }
 
+interface ConflictNotice {
+  tone: "conflict-detected" | "conflict-resolved";
+  message: string;
+  at: number;
+}
+
 interface StudyContextValue {
   state: StudyState;
   storageHealthy: boolean;
+  conflicts: ConflictRecord[];
+  drafts: ConflictDraft[];
+  activeConflict: ConflictRecord | null;
+  conflictNotice: ConflictNotice | null;
+  openConflict: (conflictId: string) => void;
+  closeConflict: () => void;
+  resolveConflict: (
+    conflict: ConflictRecord,
+    mode: ConflictResolutionMode,
+    mergeChoices?: Record<string, MergeChoice>,
+  ) => void;
+  resumeDraft: (draft: ConflictDraft) => void;
+  discardDraft: (draftId: string) => void;
   upsertRecording: (
     draft: RecordingDraft,
     existing?: Recording,
@@ -70,21 +104,124 @@ interface StudyContextValue {
 
 const StudyContext = createContext<StudyContextValue | null>(null);
 
+function signatureOf(state: StudyState): string {
+  return `${state.revision}|${state.updatedAt}`;
+}
+
 export function StudyProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(workspaceReducer, undefined, () =>
     loadStudy(),
   );
   const stateRef = useRef(state);
   stateRef.current = state;
+  const baseRef = useRef<StudyState>(state);
   const originId = useRef(createId("tab")).current;
+  const committedSigRef = useRef<string | null>(signatureOf(state));
+  const resolutionBookkeepingRef = useRef<{
+    removeConflictId: string;
+    addDraft?: ConflictDraft;
+  } | null>(null);
   const [storageHealthy, setStorageHealthy] = useState(true);
+  const [conflicts, setConflicts] = useState<ConflictRecord[]>(() =>
+    loadConflicts(),
+  );
+  const [drafts, setDrafts] = useState<ConflictDraft[]>(() => loadDrafts());
+  const [activeConflictId, setActiveConflictId] = useState<string | null>(null);
+  const [conflictNotice, setConflictNotice] = useState<ConflictNotice | null>(
+    null,
+  );
 
+  const registerConflict = useCallback(
+    (ours: StudyState, base: StudyState, committed: StudyState) => {
+      const pending = loadConflicts();
+      const duplicate = pending.find(
+        (entry) =>
+          entry.originId === originId &&
+          signatureOf(entry.ours) === signatureOf(ours),
+      );
+      if (duplicate) {
+        setActiveConflictId(duplicate.id);
+        setConflicts(pending);
+        return duplicate;
+      }
+      const commandSummary =
+        ours.auditLog.find((entry) => entry.originId === originId)?.summary ??
+        "Unsynchronized edit";
+      const record: ConflictRecord = {
+        id: createId("conflict"),
+        detectedAt: new Date().toISOString(),
+        originId,
+        originLabel: "This tab",
+        commandSummary,
+        baseRevision: base.revision,
+        oursRevision: ours.revision,
+        theirsRevision: committed.revision,
+        base,
+        ours,
+        theirs: committed,
+      };
+      const next = [...pending, record];
+      saveConflicts(next);
+      baseRef.current = committed;
+      committedSigRef.current = signatureOf(committed);
+      setConflicts(next);
+      setActiveConflictId(record.id);
+      dispatch({ type: "workspace/sync", state: committed });
+      setConflictNotice({
+        tone: "conflict-detected",
+        message:
+          "Another tab committed while you were editing. Choose how to combine the two versions.",
+        at: Date.now(),
+      });
+      return record;
+    },
+    [originId],
+  );
+
+  // Persist every committed local state, but refuse to overwrite a primary
+  // record that another tab committed in the meantime; surface that as a
+  // conflict instead of silently dropping this tab's edit.
   useEffect(() => {
-    setStorageHealthy(saveStudy(state));
-  }, [state]);
+    const current = stateRef.current;
+    const outcome = commitWorkspace(current, committedSigRef.current);
+    if (outcome.status === "unavailable") {
+      setStorageHealthy(false);
+      return;
+    }
+    setStorageHealthy(true);
+    if (outcome.status === "diverged") {
+      registerConflict(current, baseRef.current, outcome.committed);
+      return;
+    }
+    if (outcome.status === "committed" || outcome.status === "identical") {
+      committedSigRef.current = outcome.signature;
+    }
+    const bookkeeping = resolutionBookkeepingRef.current;
+    if (bookkeeping && (outcome.status === "committed" || outcome.status === "identical")) {
+      resolutionBookkeepingRef.current = null;
+      const remaining = loadConflicts().filter(
+        (entry) => entry.id !== bookkeeping.removeConflictId,
+      );
+      const nextDrafts = bookkeeping.addDraft
+        ? [...loadDrafts(), bookkeeping.addDraft]
+        : loadDrafts();
+      saveConflicts(remaining);
+      if (bookkeeping.addDraft) saveDrafts(nextDrafts);
+      setConflicts(remaining);
+      setDrafts(nextDrafts);
+    }
+  }, [state, registerConflict]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
+      if (event.key === CONFLICTS_KEY) {
+        setConflicts(loadConflicts());
+        return;
+      }
+      if (event.key === DRAFTS_KEY) {
+        setDrafts(loadDrafts());
+        return;
+      }
       if (event.key !== STORAGE_KEY) return;
       const incoming = loadStudy();
       const current = stateRef.current;
@@ -94,11 +231,41 @@ export function StudyProvider({ children }: { children: ReactNode }) {
           incoming.updatedAt === current.updatedAt)
       )
         return;
+      const wasConflictResolution = incoming.auditLog.some(
+        (entry) =>
+          entry.action === "conflict/resolve" &&
+          entry.originId !== originId &&
+          entry.revision === incoming.revision,
+      );
+      committedSigRef.current = signatureOf(incoming);
+      baseRef.current = incoming;
       dispatch({ type: "workspace/sync", state: incoming });
+      // Rebase every pending conflict onto the newest commit so a later
+      // resolution cannot resurrect content a third tab already moved past.
+      const pending = loadConflicts();
+      const rebased = pending.map((conflict) =>
+        incoming.revision >= conflict.theirsRevision
+          ? { ...conflict, theirs: incoming, theirsRevision: incoming.revision }
+          : conflict,
+      );
+      if (rebased.some((conflict, index) => conflict !== pending[index])) {
+        saveConflicts(rebased);
+        setConflicts(rebased);
+      } else {
+        setConflicts(pending);
+      }
+      if (wasConflictResolution) {
+        setConflictNotice({
+          tone: "conflict-resolved",
+          message:
+            "Another tab resolved an editing conflict; this view now shows the agreed version.",
+          at: Date.now(),
+        });
+      }
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+  }, [originId]);
 
   const withCommandMeta = useCallback(
     (action: StudyAction): StudyAction => {
@@ -130,6 +297,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
       const recording = recordingFromDraft(draft, existing);
+      baseRef.current = stateRef.current;
       dispatch(withCommandMeta({ type: "recording/upsert", recording }));
       return { ok: true, value: recording };
     },
@@ -143,6 +311,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       );
       if (!recording)
         return { ok: false, message: "The selected clip no longer exists." };
+      baseRef.current = stateRef.current;
       dispatch(withCommandMeta({ type: "recording/remove", recordingId }));
       return { ok: true };
     },
@@ -152,6 +321,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
   const assignRecording = useCallback(
     (recordingId: string, siteId: string): CommandResult => {
       try {
+        baseRef.current = stateRef.current;
         dispatch(
           withCommandMeta({ type: "placement/assign", recordingId, siteId }),
         );
@@ -169,13 +339,18 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     [withCommandMeta],
   );
 
-  const removePlacement = useCallback((recordingId: string) => {
-    dispatch(withCommandMeta({ type: "placement/remove", recordingId }));
-  }, [withCommandMeta]);
+  const removePlacement = useCallback(
+    (recordingId: string) => {
+      baseRef.current = stateRef.current;
+      dispatch(withCommandMeta({ type: "placement/remove", recordingId }));
+    },
+    [withCommandMeta],
+  );
 
   const reorderRecording = useCallback(
     (siteId: string, recordingId: string, direction: -1 | 1): CommandResult => {
       try {
+        baseRef.current = stateRef.current;
         dispatch(
           withCommandMeta({
             type: "placement/reorder",
@@ -198,36 +373,40 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     [withCommandMeta],
   );
 
-  const addIssue = useCallback((draft: IssueDraft): CommandResult => {
-    if (!draft.title.trim())
-      return { ok: false, errors: { title: "A finding title is required." } };
-    if (draft.description.trim().length < 16)
-      return {
-        ok: false,
-        errors: { description: "Add at least 16 characters of context." },
-      };
-    if (!draft.owner.trim())
-      return { ok: false, errors: { owner: "Assign an owner." } };
-    const now = new Date().toISOString();
-    dispatch(
-      withCommandMeta({
-        type: "issue/add",
-        issue: {
-          id: createId("issue"),
-          title: draft.title.trim(),
-          description: draft.description.trim(),
-          severity: draft.severity,
-          status: "open",
-          owner: draft.owner.trim(),
-          siteId: draft.siteId || undefined,
-          recordingId: draft.recordingId || undefined,
-          createdAt: now,
-          updatedAt: now,
-        },
-      }),
-    );
-    return { ok: true };
-  }, [withCommandMeta]);
+  const addIssue = useCallback(
+    (draft: IssueDraft): CommandResult => {
+      if (!draft.title.trim())
+        return { ok: false, errors: { title: "A finding title is required." } };
+      if (draft.description.trim().length < 16)
+        return {
+          ok: false,
+          errors: { description: "Add at least 16 characters of context." },
+        };
+      if (!draft.owner.trim())
+        return { ok: false, errors: { owner: "Assign an owner." } };
+      const now = new Date().toISOString();
+      baseRef.current = stateRef.current;
+      dispatch(
+        withCommandMeta({
+          type: "issue/add",
+          issue: {
+            id: createId("issue"),
+            title: draft.title.trim(),
+            description: draft.description.trim(),
+            severity: draft.severity,
+            status: "open",
+            owner: draft.owner.trim(),
+            siteId: draft.siteId || undefined,
+            recordingId: draft.recordingId || undefined,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      );
+      return { ok: true };
+    },
+    [withCommandMeta],
+  );
 
   const transitionQualityIssue = useCallback(
     (issueId: string, status: IssueStatus): CommandResult => {
@@ -238,6 +417,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
           message: "The selected review finding no longer exists.",
         };
       try {
+        baseRef.current = stateRef.current;
         dispatch(
           withCommandMeta({ type: "issue/transition", issueId, status }),
         );
@@ -255,13 +435,18 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     [state.issues, withCommandMeta],
   );
 
-  const updatePreferences = useCallback((preferences: RoutePreferences) => {
-    dispatch(withCommandMeta({ type: "preferences/update", preferences }));
-  }, [withCommandMeta]);
+  const updatePreferences = useCallback(
+    (preferences: RoutePreferences) => {
+      baseRef.current = stateRef.current;
+      dispatch(withCommandMeta({ type: "preferences/update", preferences }));
+    },
+    [withCommandMeta],
+  );
 
   const checkReadiness = useCallback(() => {
     const analysis = analyzeRoute(state.recordings, state.sites);
     const result = evaluateRelease(state, analysis);
+    baseRef.current = stateRef.current;
     dispatch(
       withCommandMeta({
         type: "project/readiness",
@@ -285,21 +470,99 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     };
   }, [state]);
 
-  const resetStudy = useCallback(
-    () =>
+  const resetStudy = useCallback(() => {
+    baseRef.current = stateRef.current;
+    dispatch(
+      withCommandMeta({
+        type: "workspace/reset",
+        state: createSeedStudy(),
+      }),
+    );
+    saveConflicts([]);
+    setConflicts([]);
+    setActiveConflictId(null);
+  }, [withCommandMeta]);
+
+  const openConflict = useCallback((conflictId: string) => {
+    setActiveConflictId(conflictId);
+  }, []);
+
+  const closeConflict = useCallback(() => setActiveConflictId(null), []);
+
+  const resolveConflict = useCallback(
+    (
+      conflict: ConflictRecord,
+      mode: ConflictResolutionMode,
+      mergeChoices?: Record<string, MergeChoice>,
+    ) => {
+      const draft =
+        mode === "draft" ? createConflictDraft(conflict) : undefined;
+      // Prune the conflict record (and park the draft, if chosen) only after
+      // the resolved state commits successfully, via the persistence effect.
+      resolutionBookkeepingRef.current = {
+        removeConflictId: conflict.id,
+        addDraft: draft,
+      };
       dispatch(
         withCommandMeta({
-          type: "workspace/reset",
-          state: createSeedStudy(),
+          type: "conflict/resolve",
+          conflict,
+          mode,
+          mergeChoices,
+          draft,
         }),
-      ),
+      );
+      setActiveConflictId(null);
+    },
     [withCommandMeta],
   );
+
+  const resumeDraft = useCallback(
+    (draft: ConflictDraft) => {
+      const pending = loadConflicts();
+      const record: ConflictRecord = {
+        id: createId("conflict"),
+        detectedAt: new Date().toISOString(),
+        originId: draft.originId,
+        originLabel: "Resumed draft",
+        commandSummary: draft.commandSummary,
+        baseRevision: draft.baseRevision,
+        oursRevision: draft.ours.revision,
+        theirsRevision: draft.theirsRevision,
+        base: draft.base,
+        ours: draft.ours,
+        theirs: stateRef.current,
+      };
+      const next = [...pending, record];
+      saveConflicts(next);
+      setConflicts(next);
+      setActiveConflictId(record.id);
+    },
+    [],
+  );
+
+  const discardDraft = useCallback((draftId: string) => {
+    const next = loadDrafts().filter((draft) => draft.id !== draftId);
+    saveDrafts(next);
+    setDrafts(next);
+  }, []);
+
+  const activeConflict =
+    conflicts.find((entry) => entry.id === activeConflictId) ?? null;
 
   const value = useMemo<StudyContextValue>(
     () => ({
       state,
       storageHealthy,
+      conflicts,
+      drafts,
+      activeConflict,
+      conflictNotice,
+      openConflict,
+      closeConflict,
+      resolveConflict,
+      resumeDraft,
+      discardDraft,
       upsertRecording,
       removeRecording,
       assignRecording,
@@ -315,6 +578,15 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     [
       state,
       storageHealthy,
+      conflicts,
+      drafts,
+      activeConflict,
+      conflictNotice,
+      openConflict,
+      closeConflict,
+      resolveConflict,
+      resumeDraft,
+      discardDraft,
       upsertRecording,
       removeRecording,
       assignRecording,
