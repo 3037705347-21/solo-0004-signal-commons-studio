@@ -3,15 +3,19 @@ import type {
   ReleaseResult,
   ReleaseRecord,
   RouteAnalysis,
+  RuleSet,
   Snapshot,
   StudyState,
 } from "./models";
 import { createId } from "./ids";
 import { releaseFingerprint } from "./releaseIdentity";
+import { selectActiveRuleVersion } from "./rules";
+
 export function evaluateRelease(
   state: StudyState,
   analysis: RouteAnalysis,
-  at = new Date(),
+  at: Date = new Date(),
+  rules: RuleSet = selectActiveRuleVersion(state).rules,
 ): ReleaseResult {
   const blockers: string[] = [];
   const cautions: string[] = [];
@@ -21,18 +25,19 @@ export function evaluateRelease(
   const warnings = state.issues.filter(
     (issue) => issue.severity === "warning" && issue.status !== "resolved",
   );
+  if (rules.requireNonEmptyRoute && !analysis.placedCount)
+    blockers.push("The listening route has no clips.");
   if (analysis.blockingCount)
     blockers.push(
       `${analysis.blockingCount} route constraint${analysis.blockingCount === 1 ? "" : "s"} remain.`,
     );
-  if (critical.length)
+  if (rules.requireCriticalResolved && critical.length)
     blockers.push(
       `${critical.length} critical consent or editorial finding${critical.length === 1 ? "" : "s"} remain unresolved.`,
     );
-  if (!analysis.placedCount) blockers.push("The listening route has no clips.");
-  if (analysis.featuredCoverage < 1)
+  if (rules.requireFeaturedPlaced && analysis.featuredCoverage < 1)
     blockers.push("Every featured clip must be assigned to a listening site.");
-  if (analysis.roleCoverage < 1)
+  if (rules.requireAllRoles && analysis.roleCoverage < 1)
     blockers.push(
       "The route should include arrival, texture, voice, and departure signals.",
     );
@@ -66,6 +71,7 @@ export function buildReleaseSnapshot(
   readiness: ReleaseResult,
   releaseId: string,
   releaseSequence: number,
+  ruleVersion = selectActiveRuleVersion(state),
 ): Snapshot {
   if (!readiness.ready)
     throw new Error(
@@ -75,12 +81,19 @@ export function buildReleaseSnapshot(
     state.recordings.map((recording) => [recording.id, recording]),
   );
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: readiness.checkedAt,
     releaseId,
     releaseSequence,
     revision: state.revision,
     fingerprint: releaseFingerprint(state),
+    ruleVersion: {
+      id: ruleVersion.id,
+      label: ruleVersion.label,
+      note: ruleVersion.note,
+      rules: structuredClone(ruleVersion.rules),
+      effectiveFrom: ruleVersion.effectiveFrom,
+    },
     project: {
       ...state.project,
       stage: "ready",
@@ -114,6 +127,7 @@ export function createReleaseRecord(
   state: StudyState,
   analysis: RouteAnalysis,
   readiness: ReleaseResult,
+  ruleVersion = selectActiveRuleVersion(state),
 ): ReleaseRecord {
   const releaseId = createId("release");
   const releaseSequence = (state.release?.sequence ?? 0) + 1;
@@ -124,6 +138,7 @@ export function createReleaseRecord(
         readiness,
         releaseId,
         releaseSequence,
+        ruleVersion,
       )
     : undefined;
   return {
@@ -133,6 +148,8 @@ export function createReleaseRecord(
     status: readiness.ready ? "ready" : "blocked",
     revision: state.revision,
     fingerprint: snapshot?.fingerprint ?? releaseFingerprint(state),
+    ruleVersionId: ruleVersion.id,
+    ruleLabel: ruleVersion.label,
     supersedes: state.release?.id,
     readiness,
     snapshot,
@@ -146,6 +163,7 @@ export function isReleaseCurrent(
   return (
     release?.status === "ready" &&
     Boolean(release.snapshot) &&
+    release.ruleVersionId === state.activeRuleVersionId &&
     release.fingerprint === releaseFingerprint(state)
   );
 }

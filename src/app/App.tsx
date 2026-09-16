@@ -3,6 +3,7 @@ import { AppShell } from "../components/AppShell";
 import { LibraryPage } from "../features/library/LibraryPage";
 import { RoutePage } from "../features/route/RoutePage";
 import { QualityPage } from "../features/quality/QualityPage";
+import { RulesPage } from "../features/rules/RulesPage";
 import { ScenariosPage } from "../features/scenarios/ScenariosPage";
 
 export function App() {
@@ -14,6 +15,7 @@ export function App() {
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/route" element={<RoutePage />} />
           <Route path="/quality" element={<QualityPage />} />
+          <Route path="/rules" element={<RulesPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="*" element={<Navigate to="/library" replace />} />
         </Routes>

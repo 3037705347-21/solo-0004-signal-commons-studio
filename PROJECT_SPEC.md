@@ -42,6 +42,10 @@ The user opens the scenario lab and adjusts listening pace, listener count, and 
 
 The user filters the quality desk by a listening site and downloads a CSV checklist that lists every placed clip in sequence with audio duration and unresolved findings.
 
+### 6. Version the study rule basis
+
+The project lead opens the rule basis, reviews the active capacity, sensitive-audio, and release thresholds, and proposes an adjustment. The workspace previews which sites, recordings, and release results would change before anything is committed. The lead can save the proposal as a draft (without affecting evaluation) and, once satisfied, adopt it as a new rule version. Earlier versions remain in the lineage; published snapshots keep displaying under the rule version frozen at release time.
+
 ## State and rules
 
 - Study state transitions are `draft -> review -> ready`; a blocking change regresses a ready study to `review`.
@@ -58,9 +62,12 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Featured clips must be assigned to a listening site before release.
 - Arrival, texture, voice, and departure signals must all be represented in the route before release.
 - Critical consent or editorial findings block release until resolved.
-- A successful readiness check freezes a revision, deterministic content fingerprint, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
+- A successful readiness check freezes a revision, deterministic content fingerprint, rule version, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
 - Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
+- Study rules (site capacity thresholds, sensitive-audio handling, clip length, and release gates) are versioned as an immutable, per-study rule lineage effective from adoption. Rule changes enter as a draft and take effect only after the lead confirms them.
+- Before confirming a rule draft, the lead sees an impact preview of the sites, recordings, and release result that would change. A draft never changes live evaluation or invalidates a release.
+- Published release records and JSON snapshots freeze the rule version in force at release time and continue to present under that historical basis when the project reopens; adopting a new rule version marks earlier releases stale but never rewrites their frozen snapshot.
 
 ## Modules and dependency direction
 
@@ -69,27 +76,29 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - `state`: revision-guarded commands, reducer, audit log, cross-tab synchronization, checksummed persistence and recovery, migrations, seed study, and selectors.
 - `features/library`: signal library discovery, filtering, creation, and editing.
 - `features/route`: listening-site planning, placement transitions, and constraint feedback.
-- `features/quality`: evidence finding lifecycle, field checklist export, release gate, and snapshot export.
+- `quality`: evidence finding lifecycle, field checklist export, release gate, and snapshot export.
+- `rules`: per-study rule versions, threshold validation, draft impact preview, and adoption.
 - `features/scenarios`: non-mutating listener scenario projection and preference application.
 - `components`: shared navigation, forms, dialogs, feedback, metrics, and visual primitives.
 
 ## Public interfaces
 
-- Browser routes: `/library`, `/route`, `/quality`, and `/scenarios`.
+- Browser routes: `/library`, `/route`, `/quality`, `/rules`, and `/scenarios`.
 - `StudyProvider` exposes typed commands and derived state to pages.
 - Local persistence key: `signal-commons.workspace.v1`.
 - Recovery backup key: `signal-commons.workspace.backup.v1`.
 - JSON snapshot download: `signal-commons-snapshot-<date>.json`.
 - Field checklist download: `signal-commons-route-checklist-<site>-<date>.csv`.
-- JSON snapshots use schema version 2 and include the frozen content revision, fingerprint, planning preferences, route summary, and unresolved findings.
+- JSON snapshots use schema version 3 and include the frozen content revision, fingerprint, rule version basis, planning preferences, route summary, and unresolved findings.
 
 ## Validation plan
 
 - TypeScript compilation and Vite production build.
-- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, and versioned persistence.
+- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, versioned persistence, rule impact previews, and the rule draft/adopt lifecycle.
 - Playwright browser checks for the five user-facing workflows.
 - Playwright checks that invalid capacity placements are rejected before route state changes.
 - Playwright checks that committed workspace changes propagate to a second browser tab.
+- Playwright checks that a rule draft shows an impact preview and changes evaluation only after adoption.
 - Generic project audit verifies source scale, manifest consistency, and every declared workflow command.
 
 ## Intentionally omitted

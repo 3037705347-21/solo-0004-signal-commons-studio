@@ -1,6 +1,10 @@
 export type ProjectStage = "draft" | "review" | "ready";
 export type SignalRole = "arrival" | "texture" | "voice" | "departure";
 export type Sensitivity = "public" | "restricted" | "sensitive";
+export type SensitivePolicy =
+  | "allow"
+  | "review-warning"
+  | "block-placement";
 export type TranscriptStatus = "missing" | "draft" | "verified";
 export type ConsentStatus = "pending" | "confirmed" | "restricted";
 export type IssueSeverity = "note" | "warning" | "critical";
@@ -68,6 +72,75 @@ export interface RoutePreferences {
   listenerCount: number;
 }
 
+/**
+ * A named set of study rules. Every numeric threshold is a fraction in the
+ * 0..1 range unless it is expressed in seconds. Rule sets are immutable once
+ * a version is confirmed; drafts are kept separately until adoption.
+ */
+export interface RuleSet {
+  /** Fraction of a site's listening target that raises a headroom warning. */
+  capacityWarnAt: number;
+  /** Fraction of a site's listening target that blocks a placement. */
+  capacityBlockAt: number;
+  /** Longest clip duration accepted into the library, in seconds. */
+  maxClipSeconds: number;
+  /** How a sensitive clip is treated outside a quiet-playback site. */
+  sensitivePolicy: SensitivePolicy;
+  /** Every featured clip must be placed before release. */
+  requireFeaturedPlaced: boolean;
+  /** Every signal role must be represented before release. */
+  requireAllRoles: boolean;
+  /** Unresolved critical findings block release. */
+  requireCriticalResolved: boolean;
+  /** A route with no clips can never release. */
+  requireNonEmptyRoute: boolean;
+}
+
+export interface RuleVersion {
+  id: string;
+  /** Human-facing label, e.g. "Field season 2026 baseline". */
+  label: string;
+  /** Short rationale for the change, recorded for historical review. */
+  note: string;
+  rules: RuleSet;
+  /** ISO timestamp; the baseline version predates the seed study. */
+  effectiveFrom: string;
+  adoptedAt?: string;
+}
+
+export interface PendingRuleChange {
+  label: string;
+  note: string;
+  rules: RuleSet;
+  createdAt: string;
+}
+
+export type RuleImpactStatus =
+  | "new-blocker"
+  | "new-warning"
+  | "cleared-blocker"
+  | "cleared-warning"
+  | "unchanged";
+
+export interface RuleImpactItem {
+  kind: "site" | "recording" | "release";
+  id: string;
+  label: string;
+  status: RuleImpactStatus;
+  detail: string;
+}
+
+export interface RuleImpactPreview {
+  beforeAnalysis: RouteAnalysis;
+  afterAnalysis: RouteAnalysis;
+  beforeRelease: ReleaseResult;
+  afterRelease: ReleaseResult;
+  items: RuleImpactItem[];
+  affectedSiteCount: number;
+  affectedRecordingCount: number;
+  releaseChanges: boolean;
+}
+
 export interface FieldStudy {
   id: string;
   title: string;
@@ -92,7 +165,7 @@ export interface CommandLogEntry {
 }
 
 export interface StudyState {
-  version: 2;
+  version: 3;
   revision: number;
   updatedAt: string;
   project: FieldStudy;
@@ -102,6 +175,9 @@ export interface StudyState {
   preferences: RoutePreferences;
   auditLog: CommandLogEntry[];
   release: ReleaseRecord | null;
+  ruleVersions: RuleVersion[];
+  activeRuleVersionId: string;
+  pendingRuleChange: PendingRuleChange | null;
   lastSavedAt?: string;
 }
 
@@ -201,18 +277,29 @@ export interface ReleaseRecord {
   status: "ready" | "blocked" | "stale";
   revision: number;
   fingerprint: string;
+  /** Rule version in force when this release check ran. */
+  ruleVersionId: string;
+  ruleLabel: string;
   supersedes?: string;
   readiness: ReleaseResult;
   snapshot?: Snapshot;
 }
 
 export interface Snapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   generatedAt: string;
   releaseId: string;
   releaseSequence: number;
   revision: number;
   fingerprint: string;
+  /** Frozen rule basis: published snapshots always present under these rules. */
+  ruleVersion: {
+    id: string;
+    label: string;
+    note: string;
+    rules: RuleSet;
+    effectiveFrom: string;
+  };
   project: FieldStudy;
   preferences: RoutePreferences;
   summary: {

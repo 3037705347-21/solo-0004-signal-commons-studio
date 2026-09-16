@@ -1,4 +1,5 @@
 import type { Recording, Site, StudyState } from "../domain/models";
+import { createBaselineRuleVersion } from "../domain/rules";
 
 const stamp = "2026-09-08T09:00:00.000Z";
 const recordings: Recording[] = [
@@ -270,7 +271,7 @@ const sites: Site[] = [
 ];
 export function createSeedStudy(): StudyState {
   return structuredClone({
-    version: 2,
+    version: 3,
     revision: 0,
     updatedAt: stamp,
     project: {
@@ -314,5 +315,8 @@ export function createSeedStudy(): StudyState {
     preferences: { pace: "steady", accessPriority: 70, listenerCount: 6 },
     auditLog: [],
     release: null,
+    ruleVersions: [createBaselineRuleVersion()],
+    activeRuleVersionId: createBaselineRuleVersion().id,
+    pendingRuleChange: null,
   });
 }

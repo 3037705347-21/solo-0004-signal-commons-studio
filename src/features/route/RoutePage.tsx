@@ -32,6 +32,7 @@ import {
   titleCase,
 } from "../../domain/formatters";
 import type { Recording, Site } from "../../domain/models";
+import { selectActiveRuleVersion } from "../../domain/rules";
 import { useStudy } from "../../state/StudyContext";
 
 export function RoutePage() {
@@ -41,9 +42,10 @@ export function RoutePage() {
     null,
   );
   const [notice, setNotice] = useState<string | null>(null);
+  const activeRules = selectActiveRuleVersion(state).rules;
   const analysis = useMemo(
-    () => analyzeRoute(state.recordings, state.sites),
-    [state.recordings, state.sites],
+    () => analyzeRoute(state.recordings, state.sites, activeRules),
+    [state.recordings, state.sites, activeRules],
   );
   const unplaced = getUnplacedRecordings(state.recordings, state.sites);
   const place = (recording: Recording, site: Site) => {
@@ -54,7 +56,12 @@ export function RoutePage() {
       .filter((id) => id !== recording.id)
       .map((id) => recordingById.get(id))
       .filter((candidate): candidate is Recording => Boolean(candidate));
-    const preview = canPlaceRecording(recording, site, currentClips);
+    const preview = canPlaceRecording(
+      recording,
+      site,
+      currentClips,
+      activeRules,
+    );
     if (preview.some((finding) => finding.type === "error")) {
       setNotice(preview[0].detail);
       window.setTimeout(() => setNotice(null), 2800);

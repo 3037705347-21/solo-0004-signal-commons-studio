@@ -151,4 +151,124 @@ describe("workspace reducer boundaries", () => {
     expect(second.snapshot?.releaseId).toBe(second.id);
     expect(second.snapshot?.releaseSequence).toBe(2);
   });
+
+  it("holds a proposed rule adjustment aside without changing evaluation", () => {
+    const state = createSeedStudy();
+    const before = state.activeRuleVersionId;
+    const proposed = workspaceReducer(state, {
+      type: "rules/propose",
+      label: "Tighter pilot rules",
+      note: "Tighten capacity for the winter pilot listening sessions.",
+      rules: {
+        ...state.ruleVersions[0].rules,
+        capacityWarnAt: 0.5,
+        sensitivePolicy: "block-placement",
+      },
+    });
+
+    expect(proposed.pendingRuleChange).not.toBeNull();
+    expect(proposed.activeRuleVersionId).toBe(before);
+    // Proposals are audited revisions but do not invalidate the release.
+    expect(proposed.release).toBeNull();
+    expect(proposed.revision).toBe(1);
+    expect(proposed.auditLog.at(-1)?.action).toBe("rules/propose");
+  });
+
+  it("adopts a confirmed draft as a new active immutable version", () => {
+    const state = createSeedStudy();
+    const rules = {
+      ...state.ruleVersions[0].rules,
+      capacityWarnAt: 0.5,
+    };
+    const drafted = workspaceReducer(state, {
+      type: "rules/propose",
+      label: "Winter thresholds",
+      note: "Lower headroom warning because sites fill quickly in winter.",
+      rules,
+    });
+    const adopted = workspaceReducer(drafted, {
+      type: "rules/adopt",
+      change: drafted.pendingRuleChange!,
+    });
+
+    expect(adopted.pendingRuleChange).toBeNull();
+    expect(adopted.ruleVersions).toHaveLength(2);
+    const active = adopted.ruleVersions.find(
+      (version) => version.id === adopted.activeRuleVersionId,
+    );
+    expect(active?.label).toBe("Winter thresholds");
+    expect(active?.rules.capacityWarnAt).toBeCloseTo(0.5);
+    expect(active?.adoptedAt).toBeTruthy();
+    expect(adopted.auditLog.at(-1)?.action).toBe("rules/adopt");
+  });
+
+  it("marks a frozen release stale when rules are adopted", () => {
+    const seed = createSeedStudy();
+    // Build a study that actually passes under the baseline rules.
+    const state: typeof seed = {
+      ...seed,
+      project: { ...seed.project, stage: "ready" },
+      issues: seed.issues.map((issue) => ({ ...issue, status: "resolved" as const })),
+      sites: seed.sites.map((site) =>
+        site.id === "site-voices"
+          ? {
+              ...site,
+              maxClips: 3,
+              maxDurationSeconds: 1200,
+              recordingIds: ["rec-courtyard", "rec-drain", "rec-park"],
+            }
+          : site,
+      ),
+    };
+    const readiness: ReleaseResult = {
+      ready: true,
+      score: 100,
+      blockers: [],
+      cautions: [],
+      checkedAt: "2026-09-10T10:00:00.000Z",
+    };
+    const release = createReleaseRecord(
+      state,
+      analyzeRoute(state.recordings, state.sites),
+      readiness,
+    );
+    expect(release.status).toBe("ready");
+    const frozen = { ...state, release };
+
+    const adopted = workspaceReducer(frozen, {
+      type: "rules/adopt",
+      change: {
+        label: "New gate",
+        note: "Change the release gate for a stricter study cycle.",
+        rules: {
+          ...state.ruleVersions[0].rules,
+          capacityWarnAt: 0.5,
+        },
+        createdAt: "2026-09-12T10:00:00.000Z",
+      },
+    });
+
+    expect(adopted.release?.status).toBe("stale");
+    // The published snapshot itself remains frozen under the old basis.
+    expect(adopted.release?.snapshot?.ruleVersion.id).toBe(
+      release.snapshot?.ruleVersion.id,
+    );
+  });
+
+  it("discards a draft without changing the active rule version", () => {
+    const state = createSeedStudy();
+    const activeBefore = state.activeRuleVersionId;
+    const drafted = workspaceReducer(state, {
+      type: "rules/propose",
+      label: "Abandoned idea",
+      note: "An experiment we decide not to run this season.",
+      rules: { ...state.ruleVersions[0].rules, capacityWarnAt: 0.4 },
+    });
+    const discarded = workspaceReducer(drafted, { type: "rules/discard" });
+
+    expect(discarded.pendingRuleChange).toBeNull();
+    expect(discarded.activeRuleVersionId).toBe(activeBefore);
+    expect(discarded.ruleVersions).toHaveLength(1);
+    expect(discarded.auditLog.at(-1)?.action).toBe("rules/discard");
+  });
 });

@@ -20,11 +20,16 @@ import {
   evaluateRelease,
   isReleaseCurrent,
 } from "../domain/releaseRules";
+import {
+  selectActiveRuleVersion,
+  validateRuleChange,
+} from "../domain/rules";
 import type {
   Recording,
   RecordingDraft,
   IssueDraft,
   IssueStatus,
+  PendingRuleChange,
   RoutePreferences,
   ReleaseResult,
   Snapshot,
@@ -63,6 +68,11 @@ interface StudyContextValue {
     status: IssueStatus,
   ) => CommandResult;
   updatePreferences: (preferences: RoutePreferences) => void;
+  proposeRuleChange: (
+    draft: Pick<PendingRuleChange, "label" | "note" | "rules">,
+  ) => CommandResult;
+  adoptRuleChange: (change?: PendingRuleChange) => CommandResult;
+  discardRuleChange: () => void;
   checkReadiness: () => ReleaseResult;
   createSnapshot: () => CommandResult<Snapshot>;
   resetStudy: () => void;
@@ -119,6 +129,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         draft,
         state.recordings,
         existing?.id,
+        selectActiveRuleVersion(state).rules,
       );
       if (validation.length) {
         return {
@@ -259,13 +270,65 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     dispatch(withCommandMeta({ type: "preferences/update", preferences }));
   }, [withCommandMeta]);
 
+  const proposeRuleChange = useCallback(
+    (draft: Pick<PendingRuleChange, "label" | "note" | "rules">): CommandResult => {
+      const validation = validateRuleChange(draft);
+      if (validation.length) {
+        return {
+          ok: false,
+          errors: Object.fromEntries(
+            validation.map((error) => [error.field, error.message]),
+          ),
+          message: "Review the highlighted thresholds before saving.",
+        };
+      }
+      dispatch(
+        withCommandMeta({
+          type: "rules/propose",
+          label: draft.label,
+          note: draft.note,
+          rules: draft.rules,
+        }),
+      );
+      return { ok: true };
+    },
+    [withCommandMeta],
+  );
+
+  const adoptRuleChange = useCallback(
+    (change?: PendingRuleChange): CommandResult => {
+      const pending = change ?? stateRef.current.pendingRuleChange;
+      if (!pending)
+        return { ok: false, message: "There is no draft adjustment to adopt." };
+      const validation = validateRuleChange(pending);
+      if (validation.length)
+        return {
+          ok: false,
+          message: "The draft thresholds are no longer valid.",
+        };
+      dispatch(withCommandMeta({ type: "rules/adopt", change: pending }));
+      return { ok: true };
+    },
+    [withCommandMeta],
+  );
+
+  const discardRuleChange = useCallback(() => {
+    if (!stateRef.current.pendingRuleChange) return;
+    dispatch(withCommandMeta({ type: "rules/discard" }));
+  }, [withCommandMeta]);
+
   const checkReadiness = useCallback(() => {
-    const analysis = analyzeRoute(state.recordings, state.sites);
-    const result = evaluateRelease(state, analysis);
+    const ruleVersion = selectActiveRuleVersion(state);
+    const analysis = analyzeRoute(
+      state.recordings,
+      state.sites,
+      ruleVersion.rules,
+    );
+    const result = evaluateRelease(state, analysis, new Date(), ruleVersion.rules);
     dispatch(
       withCommandMeta({
         type: "project/readiness",
-        release: createReleaseRecord(state, analysis, result),
+        release: createReleaseRecord(state, analysis, result, ruleVersion),
       }),
     );
     return result;
@@ -308,6 +371,9 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       addIssue,
       transitionQualityIssue,
       updatePreferences,
+      proposeRuleChange,
+      adoptRuleChange,
+      discardRuleChange,
       checkReadiness,
       createSnapshot,
       resetStudy,
@@ -323,6 +389,9 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       addIssue,
       transitionQualityIssue,
       updatePreferences,
+      proposeRuleChange,
+      adoptRuleChange,
+      discardRuleChange,
       checkReadiness,
       createSnapshot,
       resetStudy,

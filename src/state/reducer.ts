@@ -1,5 +1,6 @@
 import { createId } from "../domain/ids";
 import { canPlaceRecording } from "../domain/routeAnalysis";
+import { selectActiveRuleVersion, validateRuleChange } from "../domain/rules";
 import { compactLog, makeLogEntry } from "../domain/studyLog";
 import {
   regressReadyProject,
@@ -98,6 +99,23 @@ function mutate(
   );
 }
 
+/**
+ * Commands that only manipulate the rule drafting surface. They are real,
+ * audited revisions, but they do not change evaluation while unconfirmed and
+ * therefore must not invalidate a frozen release.
+ */
+function mutateWithoutInvalidation(
+  next: StudyState,
+  action: StudyAction,
+  revision: number,
+  at = new Date(),
+): StudyState {
+  const disposition = commandDisposition(next, action);
+  if (disposition === "duplicate") return next;
+  if (disposition === "conflict") return rejectCommand(next, action);
+  return finalizeAction(next, action, revision, at);
+}
+
 function applyReadinessStage(
   state: StudyState,
   ready: boolean,
@@ -157,7 +175,12 @@ function assignRecording(
     .filter((candidate): candidate is NonNullable<typeof candidate> =>
       Boolean(candidate),
     );
-  const [blocking] = canPlaceRecording(recording, targetSite, currentClips).filter(
+  const [blocking] = canPlaceRecording(
+    recording,
+    targetSite,
+    currentClips,
+    selectActiveRuleVersion(state).rules,
+  ).filter(
     (finding) => finding.type === "error",
   );
   if (blocking) {
@@ -305,6 +328,52 @@ export function workspaceReducer(
         state,
         action,
         regressReadyProject({ ...state, preferences: action.preferences }),
+      );
+    case "rules/propose": {
+      if (validateRuleChange(action).length) return state;
+      const pending = {
+        label: action.label.trim(),
+        note: action.note.trim(),
+        rules: action.rules,
+        createdAt: new Date().toISOString(),
+      };
+      // A proposal is a planning artifact: it neither changes the effective
+      // rules nor invalidates the current release until it is adopted.
+      return mutateWithoutInvalidation(
+        { ...state, pendingRuleChange: pending },
+        action,
+        state.revision + 1,
+      );
+    }
+    case "rules/adopt": {
+      const change = action.change;
+      if (validateRuleChange(change).length) return state;
+      const at = new Date();
+      const version = {
+        id: createId("rules"),
+        label: change.label.trim(),
+        note: change.note.trim(),
+        rules: change.rules,
+        effectiveFrom: at.toISOString(),
+        adoptedAt: at.toISOString(),
+      };
+      const next: StudyState = {
+        ...state,
+        ruleVersions: [...state.ruleVersions, version],
+        activeRuleVersionId: version.id,
+        pendingRuleChange: null,
+      };
+      // Adopting new rules is itself a release-relevant change: the previous
+      // snapshot stays frozen under the old rules and can no longer be
+      // re-exported as current.
+      return mutate(state, action, regressReadyProject(next));
+    }
+    case "rules/discard":
+      if (!state.pendingRuleChange) return state;
+      return mutateWithoutInvalidation(
+        { ...state, pendingRuleChange: null },
+        action,
+        state.revision + 1,
       );
     case "project/readiness": {
       const disposition = commandDisposition(state, action);

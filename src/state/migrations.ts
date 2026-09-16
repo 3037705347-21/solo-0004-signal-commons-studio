@@ -1,16 +1,24 @@
 import type {
   AudioSpec,
   CommandLogEntry,
+  PendingRuleChange,
   QualityIssue,
   Recording,
   ReleaseRecord,
   ReleaseResult,
   RoutePreferences,
+  RuleSet,
+  RuleVersion,
   Site,
   Snapshot,
   StudyState,
 } from "../domain/models";
 import { releaseFingerprint } from "../domain/releaseIdentity";
+import {
+  BASELINE_RULE_ID,
+  BASELINE_RULE_LABEL,
+  createBaselineRuleVersion,
+} from "../domain/rules";
 
 const PROJECT_STAGES = new Set(["draft", "review", "ready"]);
 const SIGNAL_ROLES = new Set(["arrival", "texture", "voice", "departure"]);
@@ -123,6 +131,43 @@ function isPreferences(value: unknown): value is RoutePreferences {
   );
 }
 
+const SENSITIVE_POLICIES = new Set([
+  "allow",
+  "review-warning",
+  "block-placement",
+]);
+
+function isUnitInterval(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1;
+}
+
+export function isRuleSet(value: unknown): value is RuleSet {
+  if (!isRecord(value)) return false;
+  return (
+    isUnitInterval(value.capacityWarnAt) &&
+    isUnitInterval(value.capacityBlockAt) &&
+    typeof value.maxClipSeconds === "number" &&
+    Number.isFinite(value.maxClipSeconds) &&
+    value.maxClipSeconds > 0 &&
+    typeof value.sensitivePolicy === "string" &&
+    SENSITIVE_POLICIES.has(value.sensitivePolicy) &&
+    typeof value.requireFeaturedPlaced === "boolean" &&
+    typeof value.requireAllRoles === "boolean" &&
+    typeof value.requireCriticalResolved === "boolean" &&
+    typeof value.requireNonEmptyRoute === "boolean"
+  );
+}
+
+function isPendingRuleChange(value: unknown): value is PendingRuleChange {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.label) &&
+    typeof value.note === "string" &&
+    isRuleSet(value.rules) &&
+    isNonEmptyString(value.createdAt)
+  );
+}
+
 function isProject(value: unknown): value is StudyState["project"] {
   if (!isRecord(value)) return false;
   return (
@@ -182,7 +227,11 @@ function isReleaseResult(value: unknown): value is ReleaseResult {
 function isSnapshot(value: unknown): value is Snapshot {
   if (!isRecord(value)) return false;
   if (
-    value.schemaVersion !== 2 ||
+    value.schemaVersion !== 2 &&
+    value.schemaVersion !== 3
+  )
+    return false;
+  if (
     !isNonEmptyString(value.generatedAt) ||
     !Number.isInteger(value.revision) ||
     Number(value.revision) < 0 ||
@@ -194,12 +243,66 @@ function isSnapshot(value: unknown): value is Snapshot {
     !Array.isArray(value.unresolvedIssues)
   )
     return false;
+  // Version 3 snapshots freeze their rule basis; version 2 snapshots were
+  // published under the baked-in baseline and are presented as such.
+  if (value.schemaVersion === 3 && !isFrozenRuleVersion(value.ruleVersion))
+    return false;
   return (
     typeof value.summary.recordingCount === "number" &&
     typeof value.summary.siteCount === "number" &&
     typeof value.summary.routeSeconds === "number" &&
     typeof value.summary.readinessScore === "number"
   );
+}
+
+function isFrozenRuleVersion(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.label) &&
+    typeof value.note === "string" &&
+    isRuleSet(value.rules) &&
+    isNonEmptyString(value.effectiveFrom)
+  );
+}
+
+function migrateSnapshot(
+  value: NonNullable<NonNullable<ReleaseRecord["snapshot"]>>,
+  releaseId: string,
+  sequence: number,
+): Snapshot | null {
+  if (!isSnapshot(value)) return null;
+  const releaseSequence =
+    Number.isInteger(value.releaseSequence) &&
+    Number(value.releaseSequence) > 0
+      ? Number(value.releaseSequence)
+      : sequence;
+  if (value.schemaVersion === 3) {
+    return {
+      ...value,
+      schemaVersion: 3,
+      releaseId: isNonEmptyString(value.releaseId)
+        ? value.releaseId
+        : releaseId,
+      releaseSequence,
+    };
+  }
+  // A pre-versioning snapshot was evaluated under the baseline thresholds;
+  // annotate it so it keeps displaying under that historical basis.
+  const baseline = createBaselineRuleVersion();
+  return {
+    ...value,
+    schemaVersion: 3,
+    releaseId: isNonEmptyString(value.releaseId) ? value.releaseId : releaseId,
+    releaseSequence,
+    ruleVersion: {
+      id: baseline.id,
+      label: baseline.label,
+      note: baseline.note,
+      rules: structuredClone(baseline.rules),
+      effectiveFrom: baseline.effectiveFrom,
+    },
+  };
 }
 
 function migrateRelease(value: unknown): ReleaseRecord | null {
@@ -222,17 +325,7 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
       ? Number(value.sequence)
       : 1;
   const snapshot = isSnapshot(value.snapshot)
-    ? {
-        ...value.snapshot,
-        releaseId: isNonEmptyString(value.snapshot.releaseId)
-          ? value.snapshot.releaseId
-          : releaseId,
-        releaseSequence:
-          Number.isInteger(value.snapshot.releaseSequence) &&
-          Number(value.snapshot.releaseSequence) > 0
-            ? Number(value.snapshot.releaseSequence)
-            : sequence,
-      }
+    ? migrateSnapshot(value.snapshot, releaseId, sequence)
     : value.snapshot === undefined
       ? undefined
       : null;
@@ -246,6 +339,12 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
     status: value.status,
     revision: Number(value.revision),
     fingerprint: value.fingerprint,
+    ruleVersionId: isNonEmptyString(value.ruleVersionId)
+      ? value.ruleVersionId
+      : BASELINE_RULE_ID,
+    ruleLabel: isNonEmptyString(value.ruleLabel)
+      ? value.ruleLabel
+      : BASELINE_RULE_LABEL,
     supersedes: isNonEmptyString(value.supersedes)
       ? value.supersedes
       : undefined,
@@ -268,9 +367,69 @@ function migratedUpdatedAt(state: StudyState): string {
     : "1970-01-01T00:00:00.000Z";
 }
 
+function withRuleBasis(value: UnknownRecord): {
+  ruleVersions: RuleVersion[];
+  activeRuleVersionId: string;
+  pendingRuleChange: PendingRuleChange | null;
+} {
+  const baseline = createBaselineRuleVersion();
+  const storedVersions = Array.isArray(value.ruleVersions)
+    ? value.ruleVersions
+        .map((entry) => migrateRuleVersion(entry, baseline))
+        .filter((entry): entry is RuleVersion => Boolean(entry))
+    : [];
+  const ruleVersions = storedVersions.some(
+    (version) => version.id === baseline.id,
+  )
+    ? storedVersions
+    : [baseline, ...storedVersions];
+  const activeRuleVersionId =
+    isNonEmptyString(value.activeRuleVersionId) &&
+    ruleVersions.some((version) => version.id === value.activeRuleVersionId)
+      ? value.activeRuleVersionId
+      : ruleVersions[ruleVersions.length - 1].id;
+  const pendingRuleChange = isPendingRuleChange(value.pendingRuleChange)
+    ? {
+        label: value.pendingRuleChange.label,
+        note: value.pendingRuleChange.note,
+        rules: value.pendingRuleChange.rules,
+        createdAt: value.pendingRuleChange.createdAt,
+      }
+    : null;
+  return { ruleVersions, activeRuleVersionId, pendingRuleChange };
+}
+
+function migrateRuleVersion(
+  value: unknown,
+  fallback: RuleVersion,
+): RuleVersion | null {
+  if (!isRecord(value)) return null;
+  if (!isRuleSet(value.rules)) return null;
+  if (!isNonEmptyString(value.id) || !isNonEmptyString(value.label))
+    return null;
+  // The baseline version is canonical: it carries the historical thresholds
+  // every pre-versioning study was evaluated under.
+  if (value.id === BASELINE_RULE_ID) return fallback;
+  return {
+    id: value.id,
+    label: value.label,
+    note: typeof value.note === "string" ? value.note : "",
+    rules: value.rules,
+    effectiveFrom: isNonEmptyString(value.effectiveFrom)
+      ? value.effectiveFrom
+      : isNonEmptyString(value.adoptedAt)
+        ? value.adoptedAt
+        : new Date(0).toISOString(),
+    adoptedAt: isNonEmptyString(value.adoptedAt)
+      ? value.adoptedAt
+      : undefined,
+  };
+}
+
 export function migrateWorkspace(value: unknown): StudyState | null {
   if (!isRecord(value)) return null;
-  if (value.version !== 1 && value.version !== 2) return null;
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3)
+    return null;
   if (!isProject(value.project)) return null;
   if (!Array.isArray(value.recordings) || !value.recordings.every(isRecording))
     return null;
@@ -278,9 +437,11 @@ export function migrateWorkspace(value: unknown): StudyState | null {
   if (!Array.isArray(value.issues) || !value.issues.every(isIssue)) return null;
   if (!isPreferences(value.preferences)) return null;
 
+  const basis = withRuleBasis(value);
+
   if (value.version === 1) {
     const legacy: StudyState = {
-      version: 2,
+      version: 3,
       revision: 0,
       updatedAt: "",
       project: value.project,
@@ -290,11 +451,44 @@ export function migrateWorkspace(value: unknown): StudyState | null {
       preferences: value.preferences,
       auditLog: [],
       release: null,
+      ...basis,
     };
     return {
       ...legacy,
       updatedAt: migratedUpdatedAt(legacy),
     };
+  }
+
+  if (value.version === 2) {
+    if (!Number.isInteger(value.revision) || Number(value.revision) < 0)
+      return null;
+    const auditLog = Array.isArray(value.auditLog)
+      ? value.auditLog
+          .map(migrateAuditEntry)
+          .filter((entry): entry is CommandLogEntry => Boolean(entry))
+      : [];
+    // Pre-versioning releases were all evaluated under the baseline; keep
+    // their snapshots intact under that frozen rule basis.
+    const release = migrateRelease(value.release);
+    const migrated: StudyState = {
+      version: 3,
+      revision: Number(value.revision),
+      updatedAt: isNonEmptyString(value.updatedAt)
+        ? value.updatedAt
+        : new Date().toISOString(),
+      project: value.project,
+      recordings: value.recordings,
+      sites: value.sites,
+      issues: value.issues,
+      preferences: value.preferences,
+      auditLog,
+      release,
+      ...basis,
+      lastSavedAt: isNonEmptyString(value.lastSavedAt)
+        ? value.lastSavedAt
+        : undefined,
+    };
+    return migrated;
   }
 
   if (!Number.isInteger(value.revision) || Number(value.revision) < 0)
@@ -305,7 +499,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
         .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
   return {
-    version: 2,
+    version: 3,
     revision: Number(value.revision),
     updatedAt: isNonEmptyString(value.updatedAt)
       ? value.updatedAt
@@ -317,6 +511,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
     preferences: value.preferences,
     auditLog,
     release: migrateRelease(value.release),
+    ...basis,
     lastSavedAt: isNonEmptyString(value.lastSavedAt)
       ? value.lastSavedAt
       : undefined,

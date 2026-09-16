@@ -19,6 +19,12 @@ export function describeAction(action: StudyAction): string {
       return `Moved finding to ${action.status}`;
     case "preferences/update":
       return `Updated listener profile`;
+    case "rules/propose":
+      return `Drafted rule adjustment ${action.label}`;
+    case "rules/adopt":
+      return `Activated rule version ${action.change.label}`;
+    case "rules/discard":
+      return "Discarded draft rule adjustment";
     case "project/readiness":
       return action.release.readiness.ready
         ? "Marked project ready"

@@ -1,5 +1,6 @@
 import { analyzeRoute, getUnplacedRecordings } from "../domain/routeAnalysis";
 import { issueProgress } from "../domain/releaseRules";
+import { selectActiveRuleVersion } from "../domain/rules";
 import type {
   Recording,
   QualityIssue,
@@ -50,7 +51,11 @@ export function selectIssuesForSite(
 }
 
 export function selectWorkspaceSummary(state: StudyState) {
-  const analysis = analyzeRoute(state.recordings, state.sites);
+  const analysis = analyzeRoute(
+    state.recordings,
+    state.sites,
+    selectActiveRuleVersion(state).rules,
+  );
   return {
     analysis,
     unplacedRecordings: getUnplacedRecordings(state.recordings, state.sites),

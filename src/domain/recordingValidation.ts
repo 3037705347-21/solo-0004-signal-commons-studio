@@ -1,5 +1,6 @@
-import type { Recording, RecordingDraft, ValidationError } from "./models";
+import type { Recording, RecordingDraft, RuleSet, ValidationError } from "./models";
 import { createId, normalizeCatalogId } from "./ids";
+import { BASELINE_RULES } from "./rules";
 
 const positive = (
   value: string,
@@ -16,6 +17,7 @@ export function validateRecordingDraft(
   draft: RecordingDraft,
   recordings: Recording[],
   existingId?: string,
+  rules: RuleSet = BASELINE_RULES,
 ): ValidationError[] {
   const errors: ValidationError[] = [];
   if (!draft.catalogId.trim())
@@ -64,10 +66,10 @@ export function validateRecordingDraft(
       field: "bitDepth",
       message: "Bit depth must be 16, 24, or 32.",
     });
-  if (Number(draft.durationSeconds) > 900)
+  if (Number(draft.durationSeconds) > rules.maxClipSeconds)
     errors.push({
       field: "durationSeconds",
-      message: "Keep clips at 15 minutes or less.",
+      message: `Keep clips at ${Math.round(rules.maxClipSeconds / 60)} minutes or less.`,
     });
   return errors;
 }

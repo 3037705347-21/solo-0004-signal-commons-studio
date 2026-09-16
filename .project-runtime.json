@@ -10,6 +10,7 @@
     {"workflow_id": "resolve-evidence-quality", "command": "npx playwright test e2e/review.spec.ts"},
     {"workflow_id": "compare-listener-scenarios", "command": "npx playwright test e2e/insights.spec.ts"},
     {"workflow_id": "export-field-checklist", "command": "npx playwright test e2e/checklist.spec.ts"},
+    {"workflow_id": "version-study-rules", "command": "npx playwright test e2e/rules.spec.ts"},
     {"workflow_id": "synchronize-workspace-tabs", "command": "npx playwright test e2e/sync.spec.ts"}
   ]
 }

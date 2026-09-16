@@ -10,6 +10,7 @@ import {
   MapPin,
   Plus,
   RotateCcw,
+  Scale,
   Send,
   ShieldAlert,
   Sparkles,
@@ -44,6 +45,9 @@ import {
   siteChecklistFileName,
 } from "../../domain/siteChecklist";
 import {
+  selectActiveRuleVersion,
+} from "../../domain/rules";
+import {
   loadReviewUi,
   saveReviewUi,
   type ReviewUiState,
@@ -68,13 +72,27 @@ export function QualityPage() {
   } = useStudy();
   const [reviewUi, setReviewUi] = useState<ReviewUiState>(() => loadReviewUi());
   const [showModal, setShowModal] = useState(false);
+  const activeRuleVersion = selectActiveRuleVersion(state);
   const [readiness, setReadiness] = useState(() =>
     state.release?.readiness ??
-      evaluateRelease(state, analyzeRoute(state.recordings, state.sites)),
+      evaluateRelease(
+        state,
+        analyzeRoute(
+          state.recordings,
+          state.sites,
+          activeRuleVersion.rules,
+        ),
+      ),
   );
   const [toast, setToast] = useState<string | null>(null);
   const releaseCurrent = isReleaseCurrent(state, state.release);
   const exportReady = readiness.ready && releaseCurrent;
+  const releaseUsesDifferentRules =
+    state.release?.status === "ready" &&
+    state.release.ruleVersionId !== state.activeRuleVersionId;
+  const frozenRuleLabel =
+    state.release?.snapshot?.ruleVersion.label ??
+    state.release?.ruleLabel;
 
   useEffect(() => {
     saveReviewUi(reviewUi);
@@ -192,6 +210,19 @@ export function QualityPage() {
                 ? "The study changed after the last successful check. Run it again before exporting."
                 : `${readiness.blockers.length} blocking condition${readiness.blockers.length === 1 ? "" : "s"} prevent this plan from being marked ready.`}
           </p>
+          <div className="readiness-rule-basis">
+            <Scale size={13} />
+            <span>
+              Evaluated under <strong>{activeRuleVersion.label}</strong>
+              {releaseUsesDifferentRules && frozenRuleLabel && (
+                <>
+                  {" "}
+                  · published snapshot frozen under{" "}
+                  <strong>{frozenRuleLabel}</strong>
+                </>
+              )}
+            </span>
+          </div>
         </div>
         <div className="readiness-score">
           <strong>{readiness.score}</strong>

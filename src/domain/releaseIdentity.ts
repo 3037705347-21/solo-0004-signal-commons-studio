@@ -1,6 +1,6 @@
 import type { StudyState } from "./models";
 
-const FINGERPRINT_PREFIX = "sc-r1";
+const FINGERPRINT_PREFIX = "sc-r2";
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
@@ -31,6 +31,7 @@ function fnv1a(value: string): string {
 
 export function releaseFingerprint(state: StudyState): string {
   const projection = {
+    ruleVersion: state.activeRuleVersionId,
     project: {
       id: state.project.id,
       title: state.project.title,

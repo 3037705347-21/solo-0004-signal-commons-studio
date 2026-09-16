@@ -7,6 +7,7 @@ import {
   Gauge,
   LayoutDashboard,
   RotateCcw,
+  Scale,
   Settings2,
   Sparkles,
   SunMedium,
@@ -34,6 +35,12 @@ const navigation = [
     label: "Quality desk",
     icon: BookOpen,
     detail: "Findings & release",
+  },
+  {
+    to: "/rules",
+    label: "Rule basis",
+    icon: Scale,
+    detail: "Versions & thresholds",
   },
   {
     to: "/scenarios",
@@ -82,6 +89,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <strong>{label}</strong>
                 <small>{detail}</small>
               </span>
+              {to === "/rules" && state.pendingRuleChange && (
+                <span
+                  className="nav-pending-dot"
+                  aria-label="A rule adjustment is awaiting confirmation"
+                  title="Rule draft awaiting confirmation"
+                />
+              )}
               {location.pathname.startsWith(to) && (
                 <ChevronRight size={15} className="nav-chevron" />
               )}

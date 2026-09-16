@@ -19,15 +19,17 @@ import { formatMinutes, titleCase } from "../../domain/formatters";
 import { analyzeRoute } from "../../domain/routeAnalysis";
 import { clampScenario, projectScenario } from "../../domain/scenario";
 import type { RoutePreferences } from "../../domain/models";
+import { selectActiveRuleVersion } from "../../domain/rules";
 import { useStudy } from "../../state/StudyContext";
 
 export function ScenariosPage() {
   const { state, updatePreferences } = useStudy();
   const [draft, setDraft] = useState<RoutePreferences>(state.preferences);
   const [saved, setSaved] = useState(false);
+  const activeRules = selectActiveRuleVersion(state).rules;
   const analysis = useMemo(
-    () => analyzeRoute(state.recordings, state.sites),
-    [state.recordings, state.sites],
+    () => analyzeRoute(state.recordings, state.sites, activeRules),
+    [state.recordings, state.sites, activeRules],
   );
   const projection = useMemo(
     () => projectScenario(state, analysis, draft),

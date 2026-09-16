@@ -1,9 +1,11 @@
 import type {
   Recording,
   IssueStatus,
+  PendingRuleChange,
   ReleaseRecord,
   RoutePreferences,
   QualityIssue,
+  RuleSet,
   StudyState,
 } from "../domain/models";
 
@@ -38,6 +40,14 @@ type StudyActionPayload =
       at?: Date;
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
+  | {
+      type: "rules/propose";
+      label: string;
+      note: string;
+      rules: RuleSet;
+    }
+  | { type: "rules/adopt"; change: PendingRuleChange }
+  | { type: "rules/discard" }
   | { type: "project/readiness"; release: ReleaseRecord }
   | { type: "workspace/reset"; state: StudyState }
   | { type: "workspace/sync"; state: StudyState };

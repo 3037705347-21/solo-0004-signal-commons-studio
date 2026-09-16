@@ -2,10 +2,12 @@ import type {
   ConstraintFinding,
   Recording,
   RouteAnalysis,
+  RuleSet,
   SignalRole,
   Site,
   SiteAnalysis,
 } from "./models";
+import { BASELINE_RULES } from "./rules";
 
 const ROLES: SignalRole[] = ["arrival", "texture", "voice", "departure"];
 const clipsFor = (site: Site, recordings: Recording[]) =>
@@ -16,14 +18,20 @@ const clipsFor = (site: Site, recordings: Recording[]) =>
 function sensitiveFinding(
   recording: Recording,
   site: Site,
+  rules: RuleSet,
 ): ConstraintFinding | null {
   if (recording.sensitivity !== "sensitive" || site.quietSpace) return null;
+  if (rules.sensitivePolicy === "allow") return null;
+  const blocking = rules.sensitivePolicy === "block-placement";
   return {
     id: `quiet-${recording.id}-${site.id}`,
-    type: "warning",
-    title: "Sensitive clip needs quiet playback",
-    detail:
-      "Choose a quiet site or document the playback plan before publishing.",
+    type: blocking ? "error" : "warning",
+    title: blocking
+      ? "Sensitive clip blocked from this site"
+      : "Sensitive clip needs quiet playback",
+    detail: blocking
+      ? "Current rules require a quiet-playback site for sensitive clips."
+      : "Choose a quiet site or document the playback plan before publishing.",
     siteId: site.id,
     recordingId: recording.id,
   };
@@ -33,6 +41,7 @@ export function canPlaceRecording(
   recording: Recording,
   site: Site,
   current: Recording[] = [],
+  rules: RuleSet = BASELINE_RULES,
 ): ConstraintFinding[] {
   const findings: ConstraintFinding[] = [];
   const nextSeconds =
@@ -47,16 +56,17 @@ export function canPlaceRecording(
       siteId: site.id,
       recordingId: recording.id,
     });
-  if (nextSeconds > site.maxDurationSeconds)
+  const limitSeconds = site.maxDurationSeconds * rules.capacityBlockAt;
+  if (nextSeconds > limitSeconds)
     findings.push({
       id: `time-limit-${site.id}`,
       type: "error",
       title: "Listening time exceeded",
-      detail: `${Math.ceil(nextSeconds / 60)} minutes would exceed this site’s ${Math.round(site.maxDurationSeconds / 60)} minute target.`,
+      detail: `${Math.ceil(nextSeconds / 60)} minutes would exceed this site’s ${Math.round(limitSeconds / 60)} minute target.`,
       siteId: site.id,
       recordingId: recording.id,
     });
-  const sensitivity = sensitiveFinding(recording, site);
+  const sensitivity = sensitiveFinding(recording, site, rules);
   if (sensitivity) findings.push(sensitivity);
   return findings;
 }
@@ -64,6 +74,7 @@ export function canPlaceRecording(
 export function analyzeRoute(
   recordings: Recording[],
   sites: Site[],
+  rules: RuleSet = BASELINE_RULES,
 ): RouteAnalysis {
   const findings: ConstraintFinding[] = [];
   const placedIds = new Set<string>();
@@ -82,7 +93,7 @@ export function analyzeRoute(
         : 0;
       const clipUtilization = site.maxClips ? clips.length / site.maxClips : 0;
       const siteFindings = clips
-        .map((clip) => sensitiveFinding(clip, site))
+        .map((clip) => sensitiveFinding(clip, site, rules))
         .filter((finding): finding is ConstraintFinding => Boolean(finding));
       if (clips.length > site.maxClips)
         siteFindings.push({
@@ -92,7 +103,7 @@ export function analyzeRoute(
           detail: `${clips.length} clips are placed against a limit of ${site.maxClips}.`,
           siteId: site.id,
         });
-      if (utilization > 1)
+      if (utilization > rules.capacityBlockAt)
         siteFindings.push({
           id: `duration-${site.id}`,
           type: "error",
@@ -100,7 +111,10 @@ export function analyzeRoute(
           detail: `${Math.ceil(durationSeconds / 60)} minutes are planned against ${Math.round(site.maxDurationSeconds / 60)} minutes.`,
           siteId: site.id,
         });
-      if (utilization >= 0.8 && utilization <= 1)
+      if (
+        utilization >= rules.capacityWarnAt &&
+        utilization <= rules.capacityBlockAt
+      )
         siteFindings.push({
           id: `pressure-${site.id}`,
           type: "warning",
@@ -125,7 +139,9 @@ export function analyzeRoute(
   unplaced.forEach((recording) =>
     findings.push({
       id: `unplaced-${recording.id}`,
-      type: recording.isFeatured ? "error" : "notice",
+      type: recording.isFeatured && rules.requireFeaturedPlaced
+        ? "error"
+        : "notice",
       title: recording.isFeatured
         ? "Featured clip is unplaced"
         : "Clip is unplaced",
