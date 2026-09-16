@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Boxes,
+  CalendarRange,
   ChevronRight,
   CircleHelp,
   Compass,
@@ -28,6 +29,12 @@ const navigation = [
     label: "Listening route",
     icon: Compass,
     detail: "Sites & sequence",
+  },
+  {
+    to: "/schedule",
+    label: "Field schedule",
+    icon: CalendarRange,
+    detail: "People, sites & shifts",
   },
   {
     to: "/quality",

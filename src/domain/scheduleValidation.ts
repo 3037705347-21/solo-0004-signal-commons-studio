@@ -1,5 +1,10 @@
 import { isValidDate, sameDay } from "./dateMath";
-import { isValidTime, planDates, rangesOverlap } from "./schedule";
+import {
+  isValidTime,
+  planDates,
+  rangesOverlap,
+  timeMinutes,
+} from "./schedule";
 import type {
   AssignmentDraft,
   MemberDraft,
@@ -7,7 +12,6 @@ import type {
   TeamMember,
   ValidationError,
 } from "./models";
-import { timeMinutes } from "./schedule";
 
 export function validateMemberDraft(
   draft: MemberDraft,

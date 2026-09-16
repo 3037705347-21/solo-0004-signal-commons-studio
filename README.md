@@ -28,6 +28,7 @@ npm run check
 - `src/features/route`: listening-site planning, placement transitions, and constraint feedback.
 - `src/features/quality`: evidence finding lifecycle, site field checklists, release gate, and snapshot export.
 - `src/features/scenarios`: non-mutating listener scenario controls and derived metrics.
+- `src/features/schedule`: weekend roster and timed site shifts with a live coverage matrix showing uncovered sites and overlapping assignments.
 - `src/components`: shared shell, navigation, forms, badges, metrics, dialogs, and visual primitives.
 
 ## Inputs and outputs

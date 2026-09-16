@@ -151,4 +151,40 @@ describe("workspace reducer boundaries", () => {
     expect(second.snapshot?.releaseId).toBe(second.id);
     expect(second.snapshot?.releaseSequence).toBe(2);
   });
+
+  it("keeps a frozen release current when the field schedule changes", () => {
+    const state = createSeedStudy();
+    const readiness: ReleaseResult = {
+      ready: true,
+      score: 100,
+      blockers: [],
+      cautions: [],
+      checkedAt: "2026-09-10T10:00:00.000Z",
+    };
+    const release = createReleaseRecord(
+      state,
+      analyzeRoute(state.recordings, state.sites),
+      readiness,
+    );
+    const frozen = { ...state, project: { ...state.project, stage: "ready" as const }, release };
+
+    const scheduled = workspaceReducer(frozen, {
+      type: "schedule/setWeekend",
+      weekendStart: "2026-09-26",
+      weekendEnd: "2026-09-27",
+    });
+    const member = state.schedule.members[0];
+    const withMember = workspaceReducer(scheduled, {
+      type: "schedule/memberUpsert",
+      member: { ...member, role: "Lead recordist" },
+    });
+
+    expect(withMember.release?.status).toBe("ready");
+    expect(withMember.release?.id).toBe(release.id);
+    expect(withMember.release?.fingerprint).toBe(release.fingerprint);
+    expect(withMember.release?.snapshot).toBe(release.snapshot);
+    expect(withMember.project.stage).toBe("ready");
+    expect(withMember.recordings).toBe(frozen.recordings);
+    expect(withMember.revision).toBe(frozen.revision + 2);
+  });
 });

@@ -42,9 +42,11 @@ export function clampDate(
 }
 
 export function addDays(dateValue: string, days: number): string {
-  const date = new Date(`${dateValue}T00:00:00`);
+  // Date-only values are parsed at local midnight above, but the YYYY-MM-DD
+  // result must not shift across timezones: do the arithmetic in UTC.
+  const date = new Date(`${dateValue}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return dateValue;
-  date.setDate(date.getDate() + Math.round(days));
+  date.setUTCDate(date.getUTCDate() + Math.round(days));
   return date.toISOString().slice(0, 10);
 }
 

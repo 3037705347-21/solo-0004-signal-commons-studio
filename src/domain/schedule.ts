@@ -121,13 +121,13 @@ export function planDates(plan: SchedulePlan): string[] {
   return [plan.weekendStart, plan.weekendEnd].filter(isValidDate);
 }
 
-/** Saturday of the week containing the reference date. */
+/** Saturday of the week containing the reference date, computed in UTC. */
 export function nextWeekendStart(from = new Date()): string {
-  const date = new Date(from);
-  date.setHours(0, 0, 0, 0);
-  const day = date.getDay();
+  const day = from.getUTCDay();
   const delta = (6 - day + 7) % 7;
-  date.setDate(date.getDate() + delta);
+  const date = new Date(
+    Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate() + delta),
+  );
   return date.toISOString().slice(0, 10);
 }
 

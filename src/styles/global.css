@@ -1563,6 +1563,448 @@ strong {
   background: #fff0d3;
   border: 1px solid #ead09c;
 }
+.weekend-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+.weekend-bar-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--teal);
+  background: #dceee9;
+  flex: 0 0 auto;
+}
+.weekend-fields {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+.weekend-fields .field input {
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+}
+.weekend-separator {
+  color: var(--muted);
+  padding-bottom: 9px;
+}
+.weekend-note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 380px;
+}
+.schedule-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+.schedule-main {
+  display: grid;
+  gap: 18px;
+}
+.coverage-panel,
+.schedule-alerts,
+.roster-panel,
+.shifts-panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+}
+.coverage-grid {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+  overflow-x: auto;
+}
+.coverage-row {
+  display: grid;
+  grid-template-columns: 200px repeat(var(--schedule-days, 2), minmax(180px, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+.coverage-head {
+  align-items: center;
+}
+.coverage-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.coverage-head small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.day-flags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.coverage-site {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 4px;
+}
+.coverage-site strong {
+  display: block;
+  font-size: 13px;
+}
+.coverage-site small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.coverage-cell {
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  padding: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 64px;
+  background: #fdfcf8;
+}
+.coverage-cell.uncovered {
+  border-color: #e6c2bb;
+  background: #fdf4f1;
+}
+.coverage-cell.covered {
+  border-style: solid;
+  border-color: #c2ddd4;
+  background: #f4faf7;
+}
+.coverage-shifts {
+  display: grid;
+  gap: 5px;
+}
+.coverage-shift {
+  text-align: left;
+  border: 1px solid #c7d6d1;
+  background: #fff;
+  border-radius: 5px;
+  padding: 5px 8px;
+  display: grid;
+  gap: 1px;
+}
+.coverage-shift:hover {
+  border-color: var(--teal);
+}
+.coverage-shift.absent {
+  border-color: #dfaeA4;
+  background: #fbeeec;
+}
+.coverage-shift.conflict {
+  border-color: #e6cd94;
+}
+.coverage-shift-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+.coverage-shift small {
+  color: var(--muted);
+  font: 400 10px "DM Mono";
+}
+.coverage-shift-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+  font: 500 9px "DM Mono";
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #a23f32;
+}
+.coverage-add,
+.coverage-add-mini {
+  border: 1px dashed #b8c3bf;
+  background: transparent;
+  color: #6d7c77;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  min-height: 34px;
+  width: 100%;
+}
+.coverage-add:hover,
+.coverage-add-mini:hover {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+.coverage-add-mini {
+  min-height: 22px;
+  width: 100%;
+}
+.coverage-gap-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: 500 9px "DM Mono";
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #a23f32;
+}
+.schedule-alerts {
+  display: grid;
+  gap: 9px;
+}
+.schedule-alert-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+}
+.schedule-alert-row span {
+  flex: 1;
+}
+.schedule-alert-row small {
+  color: var(--muted);
+  font: 400 10px "DM Mono";
+  white-space: nowrap;
+}
+.schedule-alert-row.danger {
+  background: #fdf1ee;
+  color: #8f362b;
+}
+.schedule-alert-row.warning {
+  background: #fbf3e1;
+  color: #8d611b;
+}
+.schedule-sidebar {
+  display: grid;
+  gap: 18px;
+}
+.roster-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+.roster-item {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 11px 12px;
+  display: grid;
+  gap: 8px;
+}
+.roster-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 8px;
+}
+.roster-item-head strong {
+  display: block;
+  font-size: 13px;
+}
+.roster-item-head small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.roster-item-actions {
+  display: flex;
+  gap: 2px;
+}
+.roster-item-actions button {
+  border: 0;
+  background: transparent;
+  color: #8a8e86;
+  display: grid;
+  place-items: center;
+  height: 26px;
+  width: 26px;
+  border-radius: 4px;
+}
+.roster-item-actions button:hover {
+  background: #efeee8;
+  color: var(--ink);
+}
+.roster-availability {
+  display: flex;
+  gap: 6px;
+}
+.availability-dot {
+  flex: 1;
+  text-align: center;
+  font: 500 9px "DM Mono";
+  letter-spacing: 0.4px;
+  padding: 3px 0;
+  border-radius: 4px;
+}
+.availability-dot.available {
+  background: #dceee9;
+  color: #23655e;
+}
+.availability-dot.unavailable {
+  background: #f3f2ec;
+  color: #a8aaa2;
+  text-decoration: line-through;
+}
+.roster-load {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+.shift-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+.shift-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+.shift-row.absent {
+  border-color: #e6c2bb;
+  background: #fdf4f1;
+}
+.shift-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.shift-main strong {
+  font-size: 12.5px;
+}
+.shift-main small {
+  color: var(--muted);
+  font: 400 10px "DM Mono";
+}
+.shift-note {
+  color: #6d7068;
+  font-size: 11px;
+}
+.shift-tags {
+  display: flex;
+  align-items: center;
+}
+.shift-ok-icon {
+  color: var(--teal);
+}
+.shift-actions {
+  display: flex;
+  gap: 1px;
+}
+.shift-actions button {
+  border: 0;
+  background: transparent;
+  color: #8a8e86;
+  display: grid;
+  place-items: center;
+  height: 26px;
+  width: 26px;
+  border-radius: 4px;
+}
+.shift-actions button:hover {
+  background: #efeee8;
+  color: var(--ink);
+}
+.site-color {
+  width: 8px;
+  align-self: stretch;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.availability-field {
+  border: 0;
+  padding: 0;
+  margin: 16px 0 0;
+}
+.availability-options {
+  display: flex;
+  gap: 9px;
+  margin: 6px 0 7px;
+}
+.availability-chip {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  padding: 9px;
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+.availability-chip strong {
+  font-size: 13px;
+}
+.availability-chip small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.availability-chip.selected {
+  border-color: var(--teal);
+  background: #f0f7f4;
+  box-shadow: inset 0 0 0 1px var(--teal);
+}
+.schedule-editor-warnings {
+  margin-top: 14px;
+  display: grid;
+  gap: 7px;
+}
+.schedule-warning-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-radius: 6px;
+  padding: 8px 11px;
+  font-size: 12px;
+}
+.schedule-warning-row.danger {
+  background: #fdf1ee;
+  color: #8f362b;
+}
+.schedule-warning-row.warning {
+  background: #fbf3e1;
+  color: #8d611b;
+}
+@media (max-width: 1000px) {
+  .schedule-layout {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .weekend-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .coverage-grid {
+    grid-template-columns: minmax(460px, 1fr);
+  }
+}
 @media (max-width: 1000px) {
   .sidebar {
     width: 210px;

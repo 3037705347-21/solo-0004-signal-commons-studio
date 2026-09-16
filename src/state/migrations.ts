@@ -171,18 +171,6 @@ function isScheduleAssignment(value: unknown): value is ScheduleAssignment {
   );
 }
 
-function isSchedulePlan(value: unknown): value is SchedulePlan {
-  if (!isRecord(value)) return false;
-  return (
-    isIsoDate(value.weekendStart) &&
-    isIsoDate(value.weekendEnd) &&
-    Array.isArray(value.members) &&
-    value.members.every(isTeamMember) &&
-    Array.isArray(value.assignments) &&
-    value.assignments.every(isScheduleAssignment)
-  );
-}
-
 function migrateSchedule(value: unknown): SchedulePlan | null {
   if (value === undefined || value === null) return emptySchedulePlan();
   if (!isRecord(value)) return null;
