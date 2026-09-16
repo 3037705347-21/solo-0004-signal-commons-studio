@@ -4,7 +4,9 @@ import type {
   ReleaseRecord,
   RoutePreferences,
   QualityIssue,
+  ScheduleAssignment,
   StudyState,
+  TeamMember,
 } from "../domain/models";
 
 export interface CommandMeta {
@@ -38,6 +40,11 @@ type StudyActionPayload =
       at?: Date;
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
+  | { type: "schedule/setWeekend"; weekendStart: string; weekendEnd: string }
+  | { type: "schedule/memberUpsert"; member: TeamMember }
+  | { type: "schedule/memberRemove"; memberId: string }
+  | { type: "schedule/assignmentUpsert"; assignment: ScheduleAssignment }
+  | { type: "schedule/assignmentRemove"; assignmentId: string }
   | { type: "project/readiness"; release: ReleaseRecord }
   | { type: "workspace/reset"; state: StudyState }
   | { type: "workspace/sync"; state: StudyState };

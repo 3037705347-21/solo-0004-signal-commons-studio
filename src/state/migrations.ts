@@ -6,11 +6,15 @@ import type {
   ReleaseRecord,
   ReleaseResult,
   RoutePreferences,
+  ScheduleAssignment,
+  SchedulePlan,
   Site,
   Snapshot,
   StudyState,
+  TeamMember,
 } from "../domain/models";
 import { releaseFingerprint } from "../domain/releaseIdentity";
+import { emptySchedulePlan, planDates } from "../domain/schedule";
 
 const PROJECT_STAGES = new Set(["draft", "review", "ready"]);
 const SIGNAL_ROLES = new Set(["arrival", "texture", "voice", "departure"]);
@@ -121,6 +125,81 @@ function isPreferences(value: unknown): value is RoutePreferences {
     typeof value.listenerCount === "number" &&
     Number.isFinite(value.listenerCount)
   );
+}
+
+const TIME_PATTERN = /^\d{2}:\d{2}$/;
+
+function isIsoDate(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(new Date(`${value}T00:00:00`).getTime())
+  );
+}
+
+function isTeamMember(value: unknown): value is TeamMember {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name) &&
+    isNonEmptyString(value.role) &&
+    Array.isArray(value.availableDates) &&
+    value.availableDates.every(
+      (date) => typeof date === "string" && isIsoDate(date),
+    ) &&
+    isNonEmptyString(value.createdAt) &&
+    isNonEmptyString(value.updatedAt)
+  );
+}
+
+function isScheduleAssignment(value: unknown): value is ScheduleAssignment {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.memberId) &&
+    isNonEmptyString(value.siteId) &&
+    isIsoDate(value.date) &&
+    typeof value.startsAt === "string" &&
+    TIME_PATTERN.test(value.startsAt) &&
+    typeof value.endsAt === "string" &&
+    TIME_PATTERN.test(value.endsAt) &&
+    (value.note === undefined ||
+      value.note === null ||
+      typeof value.note === "string") &&
+    isNonEmptyString(value.createdAt) &&
+    isNonEmptyString(value.updatedAt)
+  );
+}
+
+function isSchedulePlan(value: unknown): value is SchedulePlan {
+  if (!isRecord(value)) return false;
+  return (
+    isIsoDate(value.weekendStart) &&
+    isIsoDate(value.weekendEnd) &&
+    Array.isArray(value.members) &&
+    value.members.every(isTeamMember) &&
+    Array.isArray(value.assignments) &&
+    value.assignments.every(isScheduleAssignment)
+  );
+}
+
+function migrateSchedule(value: unknown): SchedulePlan | null {
+  if (value === undefined || value === null) return emptySchedulePlan();
+  if (!isRecord(value)) return null;
+  if (!isIsoDate(value.weekendStart) || !isIsoDate(value.weekendEnd))
+    return null;
+  const members = Array.isArray(value.members)
+    ? value.members.filter(isTeamMember)
+    : [];
+  const assignments = Array.isArray(value.assignments)
+    ? value.assignments.filter(isScheduleAssignment)
+    : [];
+  return {
+    weekendStart: value.weekendStart,
+    weekendEnd: value.weekendEnd,
+    members,
+    assignments,
+  };
 }
 
 function isProject(value: unknown): value is StudyState["project"] {
@@ -270,7 +349,8 @@ function migratedUpdatedAt(state: StudyState): string {
 
 export function migrateWorkspace(value: unknown): StudyState | null {
   if (!isRecord(value)) return null;
-  if (value.version !== 1 && value.version !== 2) return null;
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3)
+    return null;
   if (!isProject(value.project)) return null;
   if (!Array.isArray(value.recordings) || !value.recordings.every(isRecording))
     return null;
@@ -280,7 +360,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
 
   if (value.version === 1) {
     const legacy: StudyState = {
-      version: 2,
+      version: 3,
       revision: 0,
       updatedAt: "",
       project: value.project,
@@ -288,6 +368,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
       sites: value.sites,
       issues: value.issues,
       preferences: value.preferences,
+      schedule: emptySchedulePlan(),
       auditLog: [],
       release: null,
     };
@@ -304,8 +385,32 @@ export function migrateWorkspace(value: unknown): StudyState | null {
         .map(migrateAuditEntry)
         .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
+
+  if (value.version === 2) {
+    return {
+      version: 3,
+      revision: Number(value.revision),
+      updatedAt: isNonEmptyString(value.updatedAt)
+        ? value.updatedAt
+        : new Date().toISOString(),
+      project: value.project,
+      recordings: value.recordings,
+      sites: value.sites,
+      issues: value.issues,
+      preferences: value.preferences,
+      schedule: emptySchedulePlan(),
+      auditLog,
+      release: migrateRelease(value.release),
+      lastSavedAt: isNonEmptyString(value.lastSavedAt)
+        ? value.lastSavedAt
+        : undefined,
+    };
+  }
+
+  const schedule = migrateSchedule(value.schedule);
+  if (!schedule) return null;
   return {
-    version: 2,
+    version: 3,
     revision: Number(value.revision),
     updatedAt: isNonEmptyString(value.updatedAt)
       ? value.updatedAt
@@ -315,6 +420,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
     sites: value.sites,
     issues: value.issues,
     preferences: value.preferences,
+    schedule,
     auditLog,
     release: migrateRelease(value.release),
     lastSavedAt: isNonEmptyString(value.lastSavedAt)
@@ -346,7 +452,31 @@ export function validateReferences(state: StudyState): StudyState {
         ? issue.recordingId
         : undefined,
   }));
-  const normalized = { ...state, sites, issues };
+  const memberIds = new Set(
+    state.schedule.members.map((member) => member.id),
+  );
+  const plannedDates = new Set(planDates(state.schedule));
+  const schedule: SchedulePlan = {
+    ...state.schedule,
+    members: state.schedule.members.map((member) => ({
+      ...member,
+      availableDates: member.availableDates.filter((date) =>
+        plannedDates.has(date),
+      ),
+    })),
+    assignments: state.schedule.assignments
+      .filter(
+        (assignment) =>
+          memberIds.has(assignment.memberId) &&
+          siteIds.has(assignment.siteId) &&
+          plannedDates.has(assignment.date),
+      )
+      .map((assignment) => ({
+        ...assignment,
+        note: assignment.note?.trim() ? assignment.note : undefined,
+      })),
+  };
+  const normalized = { ...state, sites, issues, schedule };
   if (
     normalized.release?.status === "ready" &&
     normalized.release.fingerprint !== releaseFingerprint(normalized)

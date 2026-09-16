@@ -20,15 +20,23 @@ import {
   evaluateRelease,
   isReleaseCurrent,
 } from "../domain/releaseRules";
+import {
+  validateAssignmentDraft,
+  validateMemberDraft,
+} from "../domain/scheduleValidation";
 import type {
+  AssignmentDraft,
+  MemberDraft,
   Recording,
   RecordingDraft,
   IssueDraft,
   IssueStatus,
   RoutePreferences,
   ReleaseResult,
+  ScheduleAssignment,
   Snapshot,
   StudyState,
+  TeamMember,
 } from "../domain/models";
 import { workspaceReducer } from "./reducer";
 import { loadStudy, saveStudy, STORAGE_KEY } from "./persistence";
@@ -63,6 +71,17 @@ interface StudyContextValue {
     status: IssueStatus,
   ) => CommandResult;
   updatePreferences: (preferences: RoutePreferences) => void;
+  setScheduleWeekend: (weekendStart: string, weekendEnd: string) => CommandResult;
+  upsertMember: (
+    draft: MemberDraft,
+    existing?: TeamMember,
+  ) => CommandResult<TeamMember>;
+  removeMember: (memberId: string) => CommandResult;
+  upsertAssignment: (
+    draft: AssignmentDraft,
+    existing?: ScheduleAssignment,
+  ) => CommandResult<ScheduleAssignment>;
+  removeAssignment: (assignmentId: string) => CommandResult;
   checkReadiness: () => ReleaseResult;
   createSnapshot: () => CommandResult<Snapshot>;
   resetStudy: () => void;
@@ -259,6 +278,147 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     dispatch(withCommandMeta({ type: "preferences/update", preferences }));
   }, [withCommandMeta]);
 
+  const setScheduleWeekend = useCallback(
+    (weekendStart: string, weekendEnd: string): CommandResult => {
+      if (!weekendStart || !weekendEnd)
+        return {
+          ok: false,
+          message: "Choose both the start and end day.",
+        };
+      if (weekendEnd < weekendStart)
+        return {
+          ok: false,
+          message: "The weekend cannot end before it starts.",
+        };
+      dispatch(
+        withCommandMeta({
+          type: "schedule/setWeekend",
+          weekendStart,
+          weekendEnd,
+        }),
+      );
+      return { ok: true };
+    },
+    [withCommandMeta],
+  );
+
+  const upsertMember = useCallback(
+    (draft: MemberDraft, existing?: TeamMember): CommandResult<TeamMember> => {
+      const validation = validateMemberDraft(
+        draft,
+        state.schedule.members,
+        existing?.id,
+      );
+      if (validation.length) {
+        return {
+          ok: false,
+          errors: Object.fromEntries(
+            validation.map((error) => [error.field, error.message]),
+          ),
+          message: "Review the highlighted fields before saving.",
+        };
+      }
+      const now = new Date().toISOString();
+      const member: TeamMember = existing
+        ? {
+            ...existing,
+            name: draft.name.trim(),
+            role: draft.role.trim(),
+            availableDates: draft.availableDates,
+            updatedAt: now,
+          }
+        : {
+            id: createId("member"),
+            name: draft.name.trim(),
+            role: draft.role.trim(),
+            availableDates: draft.availableDates,
+            createdAt: now,
+            updatedAt: now,
+          };
+      dispatch(withCommandMeta({ type: "schedule/memberUpsert", member }));
+      return { ok: true, value: member };
+    },
+    [state.schedule.members, withCommandMeta],
+  );
+
+  const removeMember = useCallback(
+    (memberId: string): CommandResult => {
+      const member = state.schedule.members.find(
+        (candidate) => candidate.id === memberId,
+      );
+      if (!member)
+        return { ok: false, message: "The selected colleague no longer exists." };
+      dispatch(withCommandMeta({ type: "schedule/memberRemove", memberId }));
+      return { ok: true };
+    },
+    [state.schedule.members, withCommandMeta],
+  );
+
+  const upsertAssignment = useCallback(
+    (
+      draft: AssignmentDraft,
+      existing?: ScheduleAssignment,
+    ): CommandResult<ScheduleAssignment> => {
+      const validation = validateAssignmentDraft(
+        draft,
+        state.schedule,
+        existing?.id,
+      );
+      if (validation.length) {
+        return {
+          ok: false,
+          errors: Object.fromEntries(
+            validation.map((error) => [error.field, error.message]),
+          ),
+          message: "Review the highlighted fields before saving.",
+        };
+      }
+      const now = new Date().toISOString();
+      const assignment: ScheduleAssignment = existing
+        ? {
+            ...existing,
+            memberId: draft.memberId,
+            siteId: draft.siteId,
+            date: draft.date,
+            startsAt: draft.startsAt,
+            endsAt: draft.endsAt,
+            note: draft.note.trim() || undefined,
+            updatedAt: now,
+          }
+        : {
+            id: createId("assign"),
+            memberId: draft.memberId,
+            siteId: draft.siteId,
+            date: draft.date,
+            startsAt: draft.startsAt,
+            endsAt: draft.endsAt,
+            note: draft.note.trim() || undefined,
+            createdAt: now,
+            updatedAt: now,
+          };
+      dispatch(
+        withCommandMeta({ type: "schedule/assignmentUpsert", assignment }),
+      );
+      return { ok: true, value: assignment };
+    },
+    [state.schedule, withCommandMeta],
+  );
+
+  const removeAssignment = useCallback(
+    (assignmentId: string): CommandResult => {
+      const assignment = state.schedule.assignments.find(
+        (candidate) => candidate.id === assignmentId,
+      );
+      if (!assignment)
+        return { ok: false, message: "The selected shift no longer exists." };
+      dispatch(
+        withCommandMeta({ type: "schedule/assignmentRemove", assignmentId }),
+      );
+      return { ok: true };
+    },
+    [state.schedule.assignments, withCommandMeta],
+  );
+
   const checkReadiness = useCallback(() => {
     const analysis = analyzeRoute(state.recordings, state.sites);
     const result = evaluateRelease(state, analysis);
@@ -308,6 +468,11 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       addIssue,
       transitionQualityIssue,
       updatePreferences,
+      setScheduleWeekend,
+      upsertMember,
+      removeMember,
+      upsertAssignment,
+      removeAssignment,
       checkReadiness,
       createSnapshot,
       resetStudy,
@@ -323,6 +488,11 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       addIssue,
       transitionQualityIssue,
       updatePreferences,
+      setScheduleWeekend,
+      upsertMember,
+      removeMember,
+      upsertAssignment,
+      removeAssignment,
       checkReadiness,
       createSnapshot,
       resetStudy,

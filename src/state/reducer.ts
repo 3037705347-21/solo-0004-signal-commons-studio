@@ -82,6 +82,20 @@ function invalidateRelease(state: StudyState): StudyState {
   };
 }
 
+function commitSchedule(
+  state: StudyState,
+  action: StudyAction,
+  next: StudyState,
+): StudyState {
+  if (next === state) return state;
+  const disposition = commandDisposition(state, action);
+  if (disposition === "duplicate") return state;
+  if (disposition === "conflict") return rejectCommand(state, action);
+  // Field scheduling never rewrites finished recordings or published content:
+  // it bumps the workspace revision but keeps a frozen release current.
+  return finalizeAction(next, action, state.revision + 1);
+}
+
 function mutate(
   state: StudyState,
   action: StudyAction,
@@ -306,6 +320,86 @@ export function workspaceReducer(
         action,
         regressReadyProject({ ...state, preferences: action.preferences }),
       );
+    case "schedule/setWeekend": {
+      if (
+        action.weekendStart === state.schedule.weekendStart &&
+        action.weekendEnd === state.schedule.weekendEnd
+      )
+        return state;
+      const schedule = {
+        ...state.schedule,
+        weekendStart: action.weekendStart,
+        weekendEnd: action.weekendEnd,
+      };
+      return commitSchedule(state, action, { ...state, schedule });
+    }
+    case "schedule/memberUpsert": {
+      const exists = state.schedule.members.some(
+        (member) => member.id === action.member.id,
+      );
+      const members = exists
+        ? state.schedule.members.map((member) =>
+            member.id === action.member.id ? action.member : member,
+          )
+        : [...state.schedule.members, action.member];
+      return commitSchedule(state, action, {
+        ...state,
+        schedule: { ...state.schedule, members },
+      });
+    }
+    case "schedule/memberRemove": {
+      if (
+        !state.schedule.members.some(
+          (member) => member.id === action.memberId,
+        )
+      )
+        return state;
+      return commitSchedule(state, action, {
+        ...state,
+        schedule: {
+          ...state.schedule,
+          members: state.schedule.members.filter(
+            (member) => member.id !== action.memberId,
+          ),
+          assignments: state.schedule.assignments.filter(
+            (assignment) => assignment.memberId !== action.memberId,
+          ),
+        },
+      });
+    }
+    case "schedule/assignmentUpsert": {
+      const exists = state.schedule.assignments.some(
+        (assignment) => assignment.id === action.assignment.id,
+      );
+      const assignments = exists
+        ? state.schedule.assignments.map((assignment) =>
+            assignment.id === action.assignment.id
+              ? action.assignment
+              : assignment,
+          )
+        : [...state.schedule.assignments, action.assignment];
+      return commitSchedule(state, action, {
+        ...state,
+        schedule: { ...state.schedule, assignments },
+      });
+    }
+    case "schedule/assignmentRemove": {
+      if (
+        !state.schedule.assignments.some(
+          (assignment) => assignment.id === action.assignmentId,
+        )
+      )
+        return state;
+      return commitSchedule(state, action, {
+        ...state,
+        schedule: {
+          ...state.schedule,
+          assignments: state.schedule.assignments.filter(
+            (assignment) => assignment.id !== action.assignmentId,
+          ),
+        },
+      });
+    }
     case "project/readiness": {
       const disposition = commandDisposition(state, action);
       if (disposition === "duplicate") return state;

@@ -1,4 +1,10 @@
-import type { Recording, Site, StudyState } from "../domain/models";
+import type {
+  Recording,
+  ScheduleAssignment,
+  Site,
+  StudyState,
+  TeamMember,
+} from "../domain/models";
 
 const stamp = "2026-09-08T09:00:00.000Z";
 const recordings: Recording[] = [
@@ -268,9 +274,183 @@ const sites: Site[] = [
     recordingIds: ["rec-bus"],
   },
 ];
+
+const SATURDAY = "2026-09-19";
+const SUNDAY = "2026-09-20";
+
+const teamMembers: TeamMember[] = [
+  {
+    id: "member-lin",
+    name: "Lin Qiao",
+    role: "Field recordist",
+    availableDates: [SATURDAY, SUNDAY],
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "member-amina",
+    name: "Amina Patel",
+    role: "Consent lead",
+    availableDates: [SATURDAY, SUNDAY],
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "member-milo",
+    name: "Milo Chen",
+    role: "Route marshal",
+    availableDates: [SATURDAY, SUNDAY],
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "member-rosa",
+    name: "Rosa Mendes",
+    role: "Audio specialist",
+    availableDates: [SATURDAY],
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "member-jae",
+    name: "Jae Min",
+    role: "Volunteer coordinator",
+    availableDates: [SATURDAY, SUNDAY],
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "member-elena",
+    name: "Elena Matic",
+    role: "Accessibility host",
+    availableDates: [SUNDAY],
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+];
+
+const scheduleAssignments: ScheduleAssignment[] = [
+  // Saturday: Rhythms stays uncovered so leads see the gap immediately.
+  {
+    id: "assign-sat-threshold-lin",
+    memberId: "member-lin",
+    siteId: "site-threshold",
+    date: SATURDAY,
+    startsAt: "09:00",
+    endsAt: "10:30",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "assign-sat-threshold-jae",
+    memberId: "member-jae",
+    siteId: "site-threshold",
+    date: SATURDAY,
+    startsAt: "10:30",
+    endsAt: "12:00",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "assign-sat-voices-amina",
+    memberId: "member-amina",
+    siteId: "site-voices",
+    date: SATURDAY,
+    startsAt: "09:30",
+    endsAt: "11:30",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "assign-sat-voices-rosa",
+    memberId: "member-rosa",
+    siteId: "site-voices",
+    date: SATURDAY,
+    startsAt: "10:00",
+    endsAt: "11:00",
+    note: "Checking restricted-clip consent window",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "assign-sat-return-milo",
+    memberId: "member-milo",
+    siteId: "site-return",
+    date: SATURDAY,
+    startsAt: "14:00",
+    endsAt: "15:00",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    // Deliberate overlap: Milo is double-booked across the city on Saturday.
+    id: "assign-sat-threshold-milo-conflict",
+    memberId: "member-milo",
+    siteId: "site-threshold",
+    date: SATURDAY,
+    startsAt: "14:30",
+    endsAt: "16:00",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  // Sunday: Rosa is on leave, so the Voices shift loses its only cover.
+  {
+    id: "assign-sun-threshold-lin",
+    memberId: "member-lin",
+    siteId: "site-threshold",
+    date: SUNDAY,
+    startsAt: "09:00",
+    endsAt: "11:00",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "assign-sun-rhythm-jae",
+    memberId: "member-jae",
+    siteId: "site-rhythm",
+    date: SUNDAY,
+    startsAt: "11:00",
+    endsAt: "13:00",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "assign-sun-voices-rosa-absent",
+    memberId: "member-rosa",
+    siteId: "site-voices",
+    date: SUNDAY,
+    startsAt: "09:30",
+    endsAt: "11:00",
+    note: "Standing shift before weekend leave was confirmed",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    id: "assign-sun-return-milo",
+    memberId: "member-milo",
+    siteId: "site-return",
+    date: SUNDAY,
+    startsAt: "14:00",
+    endsAt: "16:00",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+  {
+    // Elena hosts the return loop; Voices only carries Rosa's absent morning shift.
+    id: "assign-sun-return-elena",
+    memberId: "member-elena",
+    siteId: "site-return",
+    date: SUNDAY,
+    startsAt: "13:00",
+    endsAt: "14:30",
+    createdAt: stamp,
+    updatedAt: stamp,
+  },
+];
+
 export function createSeedStudy(): StudyState {
   return structuredClone({
-    version: 2,
+    version: 3,
     revision: 0,
     updatedAt: stamp,
     project: {
@@ -312,6 +492,12 @@ export function createSeedStudy(): StudyState {
       },
     ],
     preferences: { pace: "steady", accessPriority: 70, listenerCount: 6 },
+    schedule: {
+      weekendStart: SATURDAY,
+      weekendEnd: SUNDAY,
+      members: teamMembers,
+      assignments: scheduleAssignments,
+    },
     auditLog: [],
     release: null,
   });

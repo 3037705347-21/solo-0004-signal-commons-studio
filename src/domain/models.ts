@@ -68,6 +68,50 @@ export interface RoutePreferences {
   listenerCount: number;
 }
 
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  /** Visit dates the colleague can cover; an empty list means flexible. */
+  availableDates: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduleAssignment {
+  id: string;
+  memberId: string;
+  siteId: string;
+  date: string;
+  startsAt: string;
+  endsAt: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulePlan {
+  weekendStart: string;
+  weekendEnd: string;
+  members: TeamMember[];
+  assignments: ScheduleAssignment[];
+}
+
+export interface MemberDraft {
+  name: string;
+  role: string;
+  availableDates: string[];
+}
+
+export interface AssignmentDraft {
+  memberId: string;
+  siteId: string;
+  date: string;
+  startsAt: string;
+  endsAt: string;
+  note: string;
+}
+
 export interface FieldStudy {
   id: string;
   title: string;
@@ -92,7 +136,7 @@ export interface CommandLogEntry {
 }
 
 export interface StudyState {
-  version: 2;
+  version: 3;
   revision: number;
   updatedAt: string;
   project: FieldStudy;
@@ -100,6 +144,7 @@ export interface StudyState {
   sites: Site[];
   issues: QualityIssue[];
   preferences: RoutePreferences;
+  schedule: SchedulePlan;
   auditLog: CommandLogEntry[];
   release: ReleaseRecord | null;
   lastSavedAt?: string;

@@ -33,3 +33,23 @@ export function pluralize(
 ): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
+
+export function formatWeekday(dateValue: string): string {
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "Invalid day";
+  return new Intl.DateTimeFormat("en", { weekday: "long" }).format(date);
+}
+
+export function formatDayShort(dateValue: string): string {
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateValue;
+  return new Intl.DateTimeFormat("en", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+export function formatTimeRange(startsAt: string, endsAt: string): string {
+  return `${startsAt}–${endsAt}`;
+}

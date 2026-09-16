@@ -19,6 +19,16 @@ export function describeAction(action: StudyAction): string {
       return `Moved finding to ${action.status}`;
     case "preferences/update":
       return `Updated listener profile`;
+    case "schedule/setWeekend":
+      return "Updated field weekend dates";
+    case "schedule/memberUpsert":
+      return `Updated roster member ${action.member.name}`;
+    case "schedule/memberRemove":
+      return `Removed roster member ${action.memberId}`;
+    case "schedule/assignmentUpsert":
+      return `Assigned ${action.assignment.startsAt} shift at site ${action.assignment.siteId}`;
+    case "schedule/assignmentRemove":
+      return `Removed schedule shift ${action.assignmentId}`;
     case "project/readiness":
       return action.release.readiness.ready
         ? "Marked project ready"
