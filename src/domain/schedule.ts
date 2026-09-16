@@ -95,10 +95,9 @@ export function isMemberAvailable(
   member: TeamMember,
   date: string,
 ): boolean {
-  return (
-    member.availableDates.length === 0 ||
-    member.availableDates.some((candidate) => sameDay(candidate, date))
-  );
+  // Empty means the colleague cannot cover any planned day (both weekend days
+  // were deselected); they must select at least one day to cover a shift.
+  return member.availableDates.some((candidate) => sameDay(candidate, date));
 }
 
 export function planDates(plan: SchedulePlan): string[] {
@@ -108,8 +107,8 @@ export function planDates(plan: SchedulePlan): string[] {
     plan.weekendEnd >= plan.weekendStart
   ) {
     const span = Math.round(
-      (new Date(`${plan.weekendEnd}T00:00:00`).getTime() -
-        new Date(`${plan.weekendStart}T00:00:00`).getTime()) /
+      (new Date(`${plan.weekendEnd}T00:00:00Z`).getTime() -
+        new Date(`${plan.weekendStart}T00:00:00Z`).getTime()) /
         86_400_000,
     );
     if (span <= 6) {

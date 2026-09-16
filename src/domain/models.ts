@@ -72,7 +72,7 @@ export interface TeamMember {
   id: string;
   name: string;
   role: string;
-  /** Visit dates the colleague can cover; an empty list means flexible. */
+  /** Visit dates the colleague can cover; an empty list means unavailable on every planned day. */
   availableDates: string[];
   createdAt: string;
   updatedAt: string;

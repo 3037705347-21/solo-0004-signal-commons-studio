@@ -1,4 +1,4 @@
-import { Send } from "lucide-react";
+import { Send, UserX } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../../components/Button";
 import { Modal } from "../../components/Modal";
@@ -110,6 +110,16 @@ export function MemberEditor({
           Deselect a day to flag the colleague as unavailable; their existing
           shifts that day become uncovered.
         </span>
+        {draft.availableDates.length === 0 && (
+          <div className="schedule-warning-row danger member-unavailable">
+            <UserX size={15} />
+            <span>
+              No visit days selected — {existing ? existing.name : "this colleague"}{" "}
+              is unavailable all weekend. Every existing shift assigned to them
+              will immediately count as an uncovered site.
+            </span>
+          </div>
+        )}
       </fieldset>
     </Modal>
   );

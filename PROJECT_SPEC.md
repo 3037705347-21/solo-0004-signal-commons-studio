@@ -70,7 +70,7 @@ The user opens the field schedule, sets the weekend date range, builds a roster 
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
 - Schedule commands carry the same revision guards, command IDs, and audit trail as other commands, but they never regress a ready study or invalidate a frozen release and snapshot.
 - Coverage is always computed for every day between the selected weekend start and end; date-only arithmetic is timezone-independent.
-- A site is uncovered on a day when it has no shift staffed by a colleague available that day. A shift on a day its colleague cannot cover is flagged unavailable and does not count as cover.
+- A site is uncovered on a day when it has no shift staffed by a colleague available that day. A colleague with no selected visit days cannot cover any day; their existing shifts are all flagged unavailable and their sites become uncovered. A shift on a day its colleague cannot cover is flagged unavailable and does not count as cover.
 - Two shifts for the same colleague on the same day whose times overlap are surfaced as conflicts; adjacent slots do not overlap and are allowed.
 - Startup validation drops schedule shifts that reference removed colleagues, removed sites, or dates outside the selected weekend.
 

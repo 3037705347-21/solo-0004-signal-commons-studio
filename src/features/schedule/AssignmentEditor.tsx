@@ -5,7 +5,10 @@ import { Modal } from "../../components/Modal";
 import { SelectField } from "../../components/SelectField";
 import { TextField } from "../../components/TextField";
 import { formatWeekday, formatDayShort } from "../../domain/formatters";
-import { planDates } from "../../domain/schedule";
+import {
+  isMemberAvailable,
+  planDates,
+} from "../../domain/schedule";
 import { assignmentOverlapDraft } from "../../domain/scheduleValidation";
 import type {
   AssignmentDraft,
@@ -68,8 +71,7 @@ export function AssignmentEditor({
   const overlap = assignmentOverlapDraft(draft, plan, existing?.id);
   const member = plan.members.find((candidate) => candidate.id === draft.memberId);
   const memberUnavailable =
-    member && member.availableDates.length > 0 &&
-    !member.availableDates.includes(draft.date);
+    member && !isMemberAvailable(member, draft.date);
   const overlapSite = sites.find((site) => site?.id === overlap?.siteId);
 
   return (

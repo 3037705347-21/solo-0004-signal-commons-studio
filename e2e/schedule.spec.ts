@@ -64,6 +64,45 @@ test("adding a shift closes a coverage gap and removing it reopens the gap", asy
   ).toBeVisible();
 });
 
+test("deselecting both visit days makes every shift uncovered; reselecting restores it", async ({
+  page,
+}) => {
+  await resetSampleStudy(page);
+
+  // Lin Qiao covers Threshold on Saturday; open the roster editor for them.
+  await page.getByRole("button", { name: "Edit Lin Qiao" }).click();
+  const dialog = page.getByRole("dialog");
+
+  await expect(page.getByText(/is unavailable all weekend/)).toHaveCount(0);
+  await dialog.getByRole("button", { name: /Sunday/ }).click();
+  await dialog.getByRole("button", { name: /Saturday/ }).click();
+
+  await expect(
+    page.getByText(/is unavailable all weekend/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Save changes" }).click();
+
+  // Both of Lin's shifts are now flagged unavailable; Sunday Threshold has no
+  // other cover and is uncovered.
+  await expect(
+    page.getByText(/Lin Qiao is unavailable on/),
+  ).toHaveCount(2);
+  await expect(
+    page.getByText(/Threshold listening has no available colleague on/),
+  ).toHaveCount(1);
+
+  // Reselect both days and coverage returns.
+  await page.getByRole("button", { name: "Edit Lin Qiao" }).click();
+  const reopened = page.getByRole("dialog");
+  await reopened.getByRole("button", { name: /Saturday/ }).click();
+  await reopened.getByRole("button", { name: /Sunday/ }).click();
+  await reopened.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(
+    page.getByText(/Lin Qiao is unavailable on/),
+  ).toHaveCount(0);
+});
+
 test("schedule changes survive reload", async ({ page }) => {
   await resetSampleStudy(page);
 
