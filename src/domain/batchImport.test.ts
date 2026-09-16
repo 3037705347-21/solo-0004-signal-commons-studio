@@ -42,10 +42,51 @@ describe("parseBatchText", () => {
     expect(result.errors[0]).toMatch(/not valid JSON/);
   });
 
-  it("rejects batches without any rows", () => {
+  it("treats a batch without any rows as a blocking file error", () => {
     const result = parseBatchText(JSON.stringify({ batchId: "empty" }));
-    expect(result.session).toBeNull();
-    expect(result.errors.join(" ")).toMatch(/no recordings/);
+    expect(result.session).not.toBeNull();
+    expect(result.session?.rows).toHaveLength(0);
+    expect(result.session?.fileErrors[0].message).toMatch(/no recordings/);
+  });
+
+  it("keeps readable rows while carrying a corrupted record as a file error", () => {
+    const result = parseBatchText(
+      JSON.stringify({
+        batchId: "partial",
+        recordings: [recordingRow({ catalogId: "SC-26-220" }), null],
+      }),
+    );
+    expect(result.session?.rows).toHaveLength(1);
+    expect(result.session?.fileErrors).toEqual([
+      expect.objectContaining({ ref: "recordings[2]" }),
+    ]);
+    // The readable record alone passes row validation, but the file blocks it.
+    const review = reviewBatch(result.session!, createSeedStudy());
+    expect(review.invalidCount).toBe(0);
+    expect(review.fileErrors).toHaveLength(1);
+    expect(() => commitBatch(result.session!, createSeedStudy())).toThrow(
+      /unreadable section/,
+    );
+  });
+
+  it("flags non-array sections and structured scalar values as file errors", () => {
+    const sectionResult = parseBatchText(
+      JSON.stringify({ recordings: "not-a-list" }),
+    );
+    expect(sectionResult.session?.fileErrors[0]).toMatchObject({
+      ref: "recordings",
+    });
+
+    const nested = parseBatchText(
+      JSON.stringify({
+        recordings: [
+          recordingRow({ catalogId: "SC-26-221", title: ["a", "b"] }),
+        ],
+      }),
+    );
+    expect(nested.session?.rows).toHaveLength(0);
+    expect(nested.session?.fileErrors[0].message).toMatch(/“title”/);
+    expect(() => commitBatch(nested.session!, createSeedStudy())).toThrow();
   });
 
   it("coerces numeric and scalar fields into editable row drafts", () => {

@@ -167,6 +167,7 @@ describe("batch draft persistence", () => {
     session: {
       batchId: "sweep-draft",
       label: "Draft sweep",
+      fileErrors: [] as unknown[],
       rows: [
         {
           kind: "recording" as const,
@@ -212,6 +213,26 @@ describe("batch draft persistence", () => {
       storage,
     );
     expect(loadBatchDraft(storage)?.rawText).toBe('{"x":1}');
+  });
+
+  it("keeps a draft whose file has no readable rows so the defect stays visible", () => {
+    const { storage } = memoryStorage();
+    saveBatchDraft(
+      {
+        savedAt: "2026-09-12T10:00:00.000Z",
+        step: "review",
+        session: {
+          batchId: "broken",
+          label: "Broken shipment",
+          rows: [],
+          fileErrors: [{ ref: "recordings", message: "“recordings” must be a list." }],
+        },
+      },
+      storage,
+    );
+    const loaded = loadBatchDraft(storage);
+    expect(loaded?.session?.fileErrors).toHaveLength(1);
+    expect(loaded?.session?.rows).toHaveLength(0);
   });
 
   it("ignores corrupt draft contents", () => {

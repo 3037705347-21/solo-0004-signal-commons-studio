@@ -1935,3 +1935,55 @@ strong {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.batch-file-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 15px;
+  border-radius: 6px;
+  background: #fdf3f1;
+  border: 1px solid #e0aca4;
+}
+.batch-file-errors-head {
+  display: flex;
+  gap: 10px;
+  align-items: start;
+  color: #9b3226;
+}
+.batch-file-errors-head strong {
+  font-size: 13px;
+  display: block;
+  margin-bottom: 3px;
+}
+.batch-file-errors-head p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8a463d;
+}
+.batch-file-error-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.batch-file-error-list li {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  font-size: 12px;
+  color: #7c332a;
+}
+.batch-file-error-list code {
+  flex: none;
+  font: 600 11px "DM Mono", monospace;
+  background: #f4d7d2;
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.batch-file-errors .button {
+  align-self: flex-start;
+}

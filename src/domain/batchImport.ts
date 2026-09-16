@@ -52,10 +52,22 @@ export interface BatchIssueRow {
 
 export type BatchRow = BatchRecordingRow | BatchPlacementRow | BatchIssueRow;
 
+/**
+ * A structural defect in the source file: the record could not be turned into
+ * an editable row at all (not an object, or a scalar field holding a
+ * list/object). File errors block receipt until the source is repaired;
+ * readable rows around them are still shown for context.
+ */
+export interface BatchFileError {
+  ref: string;
+  message: string;
+}
+
 export interface BatchSession {
   batchId: string;
   label: string;
   rows: BatchRow[];
+  fileErrors: BatchFileError[];
 }
 
 export interface RowReview {
@@ -67,6 +79,7 @@ export interface RowReview {
 
 export interface BatchReview {
   rows: RowReview[];
+  fileErrors: BatchFileError[];
   validCount: number;
   invalidCount: number;
   duplicateCount: number;
@@ -201,16 +214,51 @@ function coerceIssue(raw: RawIssue): BatchIssueRow {
 
 export interface ParseBatchResult {
   session: BatchSession | null;
+  /** Fatal problems that prevent even opening a review (bad JSON/container). */
   errors: string[];
 }
 
+const RECORDING_SCALAR_KEYS = [
+  "catalogId", "title", "source", "recordedOn", "format", "location",
+  "summary", "sampleRate", "channels", "bitDepth", "durationSeconds",
+  "signalRole", "sensitivity", "transcriptStatus", "consentStatus",
+  "isFeatured", "color", "site", "siteRef", "position",
+] as const;
+const PLACEMENT_SCALAR_KEYS = ["catalogId", "site", "siteRef", "position"] as const;
+const ISSUE_SCALAR_KEYS = [
+  "title", "description", "severity", "owner", "site", "siteRef",
+  "recording", "recordingRef", "catalogId",
+] as const;
+
+const isStructured = (value: unknown): boolean =>
+  (typeof value === "object" && value !== null) as boolean;
+
+/** A scalar field may hold a string/number/boolean/null — never a list/object. */
+function malformedScalarFields(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): string[] {
+  return keys.filter((key) => key in record && isStructured(record[key]));
+}
+
+function malformedTags(record: { tags?: unknown }): boolean {
+  if (!("tags" in record) || !isStructured(record.tags)) return false;
+  const tags = record.tags;
+  if (!Array.isArray(tags)) return true;
+  return tags.some((item) => isStructured(item));
+}
+
 /**
- * Parses pasted/loaded field-batch JSON. Structural problems (bad JSON,
- * wrong container shape, non-array sections, empty batch) are reported
- * instead of being smuggled into row validation.
+ * Parses pasted/loaded field-batch JSON.
+ *
+ * Fatal problems (bad JSON, a non-object container) stop the parse. Damaged
+ * sections or records — a non-array section, a record that is not an object,
+ * or a scalar field carrying a list/object — do not silently drop content:
+ * the readable records still become review rows, while every defect is carried
+ * on the session as a file error that blocks receipt until the source is
+ * repaired.
  */
 export function parseBatchText(text: string): ParseBatchResult {
-  const errors: string[] = [];
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -225,34 +273,85 @@ export function parseBatchText(text: string): ParseBatchResult {
   }
   const raw = parsed as RawBatch;
   const rows: BatchRow[] = [];
-  const sections: Array<[string, unknown, (item: unknown) => BatchRow]> = [
-    ["recordings", raw.recordings, (item) => coerceRecording(item as RawRecording)],
-    ["placements", raw.placements, (item) => coercePlacement(item as RawPlacement)],
-    ["issues", raw.issues, (item) => coerceIssue(item as RawIssue)],
+  const fileErrors: BatchFileError[] = [];
+  const sections: Array<{
+    name: string;
+    value: unknown;
+    scalars: readonly string[];
+    coerce: (item: unknown) => BatchRow;
+    allowTags?: boolean;
+  }> = [
+    {
+      name: "recordings",
+      value: raw.recordings,
+      scalars: RECORDING_SCALAR_KEYS,
+      allowTags: true,
+      coerce: (item) => coerceRecording(item as RawRecording),
+    },
+    {
+      name: "placements",
+      value: raw.placements,
+      scalars: PLACEMENT_SCALAR_KEYS,
+      coerce: (item) => coercePlacement(item as RawPlacement),
+    },
+    {
+      name: "issues",
+      value: raw.issues,
+      scalars: ISSUE_SCALAR_KEYS,
+      coerce: (item) => coerceIssue(item as RawIssue),
+    },
   ];
-  for (const [name, value, coerce] of sections) {
-    if (value === undefined) continue;
-    if (!Array.isArray(value)) {
-      errors.push(`“${name}” must be a list.`);
+  for (const section of sections) {
+    if (section.value === undefined) continue;
+    if (!Array.isArray(section.value)) {
+      fileErrors.push({
+        ref: section.name,
+        message: `“${section.name}” must be a list of records, so this section could not be read.`,
+      });
       continue;
     }
-    value.forEach((item, index) => {
+    section.value.forEach((item, index) => {
+      const ref = `${section.name}[${index + 1}]`;
       if (!item || typeof item !== "object" || Array.isArray(item)) {
-        errors.push(`${name}[${index + 1}] must be an object and was skipped.`);
+        fileErrors.push({
+          ref,
+          message: `${ref} is not an object — this record could not be read.`,
+        });
         return;
       }
-      rows.push(coerce(item));
+      const record = item as Record<string, unknown>;
+      const badFields = malformedScalarFields(record, section.scalars);
+      if (section.allowTags && malformedTags(record as { tags?: unknown })) {
+        badFields.push("tags");
+      }
+      if (badFields.length) {
+        fileErrors.push({
+          ref,
+          message: `${ref} has an unreadable ${badFields
+            .map((field) => `“${field}”`)
+            .join(", ")} value — expected a single value${
+            badFields.includes("tags") ? " or a flat list" : ""
+          }.`,
+        });
+        return;
+      }
+      rows.push(section.coerce(item));
     });
   }
-  if (!rows.length) {
-    errors.push("The batch contains no recordings, placements, or findings to review.");
+  if (rows.length === 0 && fileErrors.length === 0) {
+    fileErrors.push({
+      ref: "batch",
+      message:
+        "The file contains no recordings, placements, or findings to review.",
+    });
   }
-  return {
-    session: rows.length
-      ? { batchId: str(raw.batchId), label: str(raw.label), rows }
-      : null,
-    errors,
+  const session: BatchSession = {
+    batchId: str(raw.batchId),
+    label: str(raw.label),
+    rows,
+    fileErrors,
   };
+  return { session, errors: [] };
 }
 
 /* ------------------------------------------------------------------ */
@@ -526,6 +625,7 @@ export function reviewBatch(session: BatchSession, state: StudyState): BatchRevi
   const duplicateCount = rows.filter((review) => Boolean(review.duplicateOf)).length;
   return {
     rows,
+    fileErrors: session.fileErrors,
     validCount,
     invalidCount: rows.filter((review) => review.errors.length > 0).length,
     duplicateCount,
@@ -648,6 +748,16 @@ export function commitBatch(
   state: StudyState,
   at = new Date(),
 ): BatchCommitResult {
+  if (session.fileErrors.length) {
+    // Structural defects mean the source itself is incomplete. Accepting the
+    // readable rows would silently save a partial shipment, which the review
+    // screen exists to prevent.
+    throw new Error(
+      `Repair the ${session.fileErrors.length} unreadable section${
+        session.fileErrors.length === 1 ? "" : "s"
+      } in the batch file before receiving it.`,
+    );
+  }
   const review = reviewBatch(session, state);
   const hardError = review.rows.find((rowReview, index) => {
     const row = session.rows[index];

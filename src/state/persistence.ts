@@ -147,13 +147,19 @@ export interface BatchDraftRecord {
   session?: BatchSession;
 }
 
-function sessionShapeValid(session: BatchSession | undefined): boolean {
-  if (!session) return false;
+function sessionShapeValid(
+  session: (Partial<BatchSession> & { fileErrors?: unknown }) | undefined,
+): boolean {
+  if (!session || !Array.isArray(session.rows)) return false;
+  // Drafts written before file errors existed carry no fileErrors field.
+  if ("fileErrors" in session && !Array.isArray(session.fileErrors)) return false;
   return (
     typeof session.batchId === "string" &&
     typeof session.label === "string" &&
-    Array.isArray(session.rows) &&
-    session.rows.length > 0
+    // A batch with no readable rows is still resumable when the file
+    // defect that blocked it is carried on the draft.
+    (session.rows.length > 0 ||
+      (Array.isArray(session.fileErrors) && session.fileErrors.length > 0))
   );
 }
 

@@ -266,6 +266,14 @@ export function StudyProvider({ children }: { children: ReactNode }) {
 
   const importBatch = useCallback(
     (session: BatchSession): CommandResult<BatchCommitResult> => {
+      if (session.fileErrors.length) {
+        return {
+          ok: false,
+          message: `Repair the ${session.fileErrors.length} unreadable section${
+            session.fileErrors.length === 1 ? "" : "s"
+          } in the batch file — none of its clips, positions, or findings can be saved until then.`,
+        };
+      }
       const review = reviewBatch(session, state);
       const blocking = review.rows.find((row, index) => {
         const source = session.rows[index];

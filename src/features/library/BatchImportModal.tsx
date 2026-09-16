@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
+import { EmptyState } from "../../components/EmptyState";
 import { Modal } from "../../components/Modal";
 import { titleCase } from "../../domain/formatters";
 import {
@@ -80,7 +81,12 @@ export function BatchImportModal({ onClose }: { onClose: () => void }) {
   );
   const [rawText, setRawText] = useState(resumed.current?.rawText ?? "");
   const [session, setSession] = useState<BatchSession | null>(
-    resumed.current?.session ?? null,
+    resumed.current?.session
+      ? {
+          ...resumed.current.session,
+          fileErrors: resumed.current.session.fileErrors ?? [],
+        }
+      : null,
   );
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -113,12 +119,19 @@ export function BatchImportModal({ onClose }: { onClose: () => void }) {
     [session, state],
   );
 
+  const fileErrorCount = session?.fileErrors.length ?? 0;
   const reviewable =
-    review && review.invalidCount === 0 && review.validCount > 0;
+    review != null &&
+    fileErrorCount === 0 &&
+    review.invalidCount === 0 &&
+    review.validCount > 0;
 
   const handleParse = () => {
     const result = parseBatchText(rawText);
     setParseErrors(result.errors);
+    // A readable container always yields a session, even when sections or
+    // records inside it are damaged — those defects ride along as file errors
+    // and block receipt until the source is repaired.
     if (result.session) {
       setSession(result.session);
       setStep("review");
@@ -215,9 +228,19 @@ export function BatchImportModal({ onClose }: { onClose: () => void }) {
               icon={<Upload size={16} />}
               disabled={!reviewable}
               onClick={acceptBatch}
+              title={
+                fileErrorCount > 0
+                  ? "Repair the unreadable file sections before receiving"
+                  : undefined
+              }
             >
-              Receive {review?.validCount ?? 0} item
-              {review?.validCount === 1 ? "" : "s"}
+              {fileErrorCount > 0
+                ? `Blocked · ${fileErrorCount} unreadable section${
+                    fileErrorCount === 1 ? "" : "s"
+                  }`
+                : `Receive ${review?.validCount ?? 0} item${
+                    review?.validCount === 1 ? "" : "s"
+                  }`}
             </Button>
           </>
         )
@@ -298,6 +321,7 @@ export function BatchImportModal({ onClose }: { onClose: () => void }) {
             review={review}
             onUpdateRow={updateRow}
             onRemoveRow={removeRow}
+            onBackToSource={() => setStep("compose")}
           />
         )
       )}
@@ -311,12 +335,14 @@ function BatchReview({
   review,
   onUpdateRow,
   onRemoveRow,
+  onBackToSource,
 }: {
   state: StudyState;
   session: BatchSession;
   review: ReturnType<typeof reviewBatch>;
   onUpdateRow: (rowId: string, patch: Partial<BatchRow>) => void;
   onRemoveRow: (rowId: string) => void;
+  onBackToSource: () => void;
 }) {
   const alreadyReceived = state.imports?.some(
     (receipt) => receipt.batchKey === batchKey(session),
@@ -330,6 +356,9 @@ function BatchReview({
         </div>
         <div className="batch-count-row">
           <Badge tone="positive">{review.validCount} ready</Badge>
+          {review.fileErrors.length > 0 && (
+            <Badge tone="danger">{review.fileErrors.length} unreadable in file</Badge>
+          )}
           {review.invalidCount > 0 && (
             <Badge tone="danger">{review.invalidCount} need attention</Badge>
           )}
@@ -341,20 +370,64 @@ function BatchReview({
           )}
         </div>
       </div>
+      {review.fileErrors.length > 0 && (
+        <div className="batch-file-errors" role="alert">
+          <div className="batch-file-errors-head">
+            <XCircle size={17} />
+            <div>
+              <strong>
+                {review.fileErrors.length} section
+                {review.fileErrors.length === 1 ? "" : "s"} of this file could not
+                be read
+              </strong>
+              <p>
+                The readable {review.rows.length} record
+                {review.rows.length === 1 ? "" : "s"} below are shown for context,
+                but nothing can enter the study until the source file is repaired
+                and reviewed again. Fixing row fields cannot recover a missing
+                record.
+              </p>
+            </div>
+          </div>
+          <ul className="batch-file-error-list">
+            {review.fileErrors.map((fileError) => (
+              <li key={`${fileError.ref}-${fileError.message}`}>
+                <code>{fileError.ref}</code>
+                <span>{fileError.message.replace(/^[^ ]+ /, "")}</span>
+              </li>
+            ))}
+          </ul>
+          <Button
+            variant="secondary"
+            icon={<RotateCcw size={15} />}
+            onClick={onBackToSource}
+          >
+            Back to source to repair
+          </Button>
+        </div>
+      )}
       {alreadyReceived && (
         <div className="batch-resume-note" role="status">
           <CheckCircle2 size={14} />
           <span>This batch was already received; resubmitting will not duplicate its clips, positions, or findings.</span>
         </div>
       )}
-      {review.invalidCount > 0 && (
+      {(review.invalidCount > 0 || review.fileErrors.length > 0) && (
         <div className="batch-block-note" role="alert">
           <AlertTriangle size={15} />
           <span>
-            The batch cannot be received until every flagged row is fixed —
-            no partial data is saved.
+            {review.fileErrors.length > 0
+              ? "Unreadable file sections block this batch — repair the source and review again; nothing is saved."
+              : "The batch cannot be received until every flagged row is fixed — no partial data is saved."}
           </span>
         </div>
+      )}
+      {session.rows.length === 0 && (
+        <EmptyState
+          icon={<XCircle size={24} />}
+          title="No readable records in this file"
+          detail="Repair the source JSON and review the batch again."
+        />
       )}
       <div className="batch-row-list">
         {session.rows.map((row, index) => (
