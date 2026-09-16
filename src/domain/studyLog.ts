@@ -23,6 +23,8 @@ export function describeAction(action: StudyAction): string {
       return action.release.readiness.ready
         ? "Marked project ready"
         : "Returned project to review";
+    case "batch/import":
+      return `Received field batch ${action.commit.label}`;
     case "workspace/reset":
       return "Reset workspace to sample plan";
     case "workspace/sync":

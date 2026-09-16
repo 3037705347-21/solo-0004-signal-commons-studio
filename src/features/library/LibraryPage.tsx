@@ -1,4 +1,4 @@
-import { Filter, Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import { Filter, Layers, Plus, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { RecordingGlyph } from "../../components/RecordingGlyph";
 import { Badge } from "../../components/Badge";
@@ -19,7 +19,9 @@ import type {
   SignalRole,
   Sensitivity,
 } from "../../domain/models";
+import { loadBatchDraft } from "../../state/persistence";
 import { useStudy } from "../../state/StudyContext";
+import { BatchImportModal } from "./BatchImportModal";
 
 const roleOptions: SignalRole[] = ["arrival", "texture", "voice", "departure"];
 const sensitivityOptions: Sensitivity[] = ["public", "restricted", "sensitive"];
@@ -34,7 +36,14 @@ export function LibraryPage() {
     draft: RecordingDraft;
     existing?: Recording;
   } | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [draftBanner, setDraftBanner] = useState(() => loadBatchDraft());
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  const closeBatchModal = () => {
+    setBatchOpen(false);
+    setDraftBanner(loadBatchDraft());
+  };
 
   const filtered = useMemo(
     () =>
@@ -69,15 +78,47 @@ export function LibraryPage() {
         title="Library"
         description="Shape the cast of clips before you ask them to carry a story."
         actions={
-          <Button
-            variant="primary"
-            icon={<Plus size={17} />}
-            onClick={() => setEditor({ draft: emptyRecordingDraft })}
-          >
-            Add clip
-          </Button>
+          <div className="header-button-row">
+            <Button
+              variant="secondary"
+              icon={<Layers size={16} />}
+              onClick={() => setBatchOpen(true)}
+            >
+              Import batch
+            </Button>
+            <Button
+              variant="primary"
+              icon={<Plus size={17} />}
+              onClick={() => setEditor({ draft: emptyRecordingDraft })}
+            >
+              Add clip
+            </Button>
+          </div>
         }
       />
+      {draftBanner && !batchOpen && (
+        <section className="batch-draft-banner" role="status">
+          <RotateCcw size={16} />
+          <div>
+            <strong>
+              A field batch is waiting for review
+              {draftBanner.session?.label
+                ? `: ${draftBanner.session.label}`
+                : ""}
+            </strong>
+            <span>
+              Saved {new Date(draftBanner.savedAt).toLocaleString()} ·{" "}
+              {draftBanner.step === "review"
+                ? "you were reviewing its rows"
+                : "you were preparing the source JSON"}
+              . Nothing from this batch has entered the study yet.
+            </span>
+          </div>
+          <Button variant="primary" onClick={() => setBatchOpen(true)}>
+            Continue batch
+          </Button>
+        </section>
+      )}
       <div className="summary-strip">
         <div>
           <span className="eyebrow">LIBRARY CLIPS</span>
@@ -209,6 +250,7 @@ export function LibraryPage() {
         </div>
       )}
       {feedback && <div className="toast toast-positive">{feedback}</div>}
+      {batchOpen && <BatchImportModal onClose={closeBatchModal} />}
       {editor && (
         <RecordingEditor
           initial={editor.draft}

@@ -1,10 +1,12 @@
 import type { IssueStatus, StudyState } from "../domain/models";
+import type { BatchSession } from "../domain/batchImport";
 import { createSeedStudy } from "./seed";
 import { migrateWorkspace, validateReferences } from "./migrations";
 
 export const STORAGE_KEY = "signal-commons.workspace.v1";
 export const STORAGE_BACKUP_KEY = "signal-commons.workspace.backup.v1";
 export const REVIEW_UI_KEY = "signal-commons.review-ui.v1";
+export const BATCH_DRAFT_KEY = "signal-commons.batch-draft.v1";
 const STORAGE_ENVELOPE_VERSION = 1;
 
 interface StorageEnvelope {
@@ -99,6 +101,7 @@ export function clearWorkspace(
 ): void {
   storage.removeItem(STORAGE_KEY);
   storage.removeItem(STORAGE_BACKUP_KEY);
+  storage.removeItem(BATCH_DRAFT_KEY);
 }
 
 export function loadReviewUi(
@@ -132,5 +135,70 @@ export function saveReviewUi(
     storage.setItem(REVIEW_UI_KEY, JSON.stringify(ui));
   } catch {
     // UI preferences are non-critical; ignore storage failures.
+  }
+}
+
+export interface BatchDraftRecord {
+  savedAt: string;
+  step: "compose" | "review";
+  /** Pasted source retained while still on the compose step. */
+  rawText?: string;
+  /** Parsed, editable batch once the review step has been reached. */
+  session?: BatchSession;
+}
+
+function sessionShapeValid(session: BatchSession | undefined): boolean {
+  if (!session) return false;
+  return (
+    typeof session.batchId === "string" &&
+    typeof session.label === "string" &&
+    Array.isArray(session.rows) &&
+    session.rows.length > 0
+  );
+}
+
+function isBatchDraft(value: unknown): value is BatchDraftRecord {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<BatchDraftRecord>;
+  if (
+    typeof candidate.savedAt !== "string" ||
+    (candidate.step !== "compose" && candidate.step !== "review")
+  )
+    return false;
+  // A review-step draft must carry the parsed, editable session. A compose
+  // draft only needs its pasted source (it may also carry a parsed session).
+  if (candidate.step === "review") return sessionShapeValid(candidate.session);
+  return (
+    typeof candidate.rawText === "string" ||
+    sessionShapeValid(candidate.session)
+  );
+}
+
+export function loadBatchDraft(
+  storage: Pick<Storage, "getItem"> = localStorage,
+): BatchDraftRecord | null {
+  try {
+    const raw = storage.getItem(BATCH_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isBatchDraft(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveBatchDraft(
+  draft: BatchDraftRecord | null,
+  storage: Pick<Storage, "setItem" | "removeItem"> = localStorage,
+): boolean {
+  try {
+    if (!draft) {
+      storage.removeItem(BATCH_DRAFT_KEY);
+      return true;
+    }
+    storage.setItem(BATCH_DRAFT_KEY, JSON.stringify(draft));
+    return true;
+  } catch {
+    return false;
   }
 }

@@ -91,6 +91,19 @@ export interface CommandLogEntry {
   actor: "local-user" | "system";
 }
 
+export interface ImportReceipt {
+  batchKey: string;
+  label: string;
+  receivedAt: string;
+  commandId: string;
+  revision: number;
+  recordingCount: number;
+  placementCount: number;
+  issueCount: number;
+  skippedCount: number;
+  catalogIds: string[];
+}
+
 export interface StudyState {
   version: 2;
   revision: number;
@@ -102,6 +115,7 @@ export interface StudyState {
   preferences: RoutePreferences;
   auditLog: CommandLogEntry[];
   release: ReleaseRecord | null;
+  imports: ImportReceipt[];
   lastSavedAt?: string;
 }
 

@@ -314,5 +314,6 @@ export function createSeedStudy(): StudyState {
     preferences: { pace: "steady", accessPriority: 70, listenerCount: 6 },
     auditLog: [],
     release: null,
+    imports: [],
   });
 }

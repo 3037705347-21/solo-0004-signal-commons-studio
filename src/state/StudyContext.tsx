@@ -13,6 +13,14 @@ import {
   recordingFromDraft,
   validateRecordingDraft,
 } from "../domain/recordingValidation";
+import {
+  batchKey,
+  batchLabel,
+  commitBatch,
+  reviewBatch,
+  type BatchCommitResult,
+  type BatchSession,
+} from "../domain/batchImport";
 import { createId } from "../domain/ids";
 import { analyzeRoute } from "../domain/routeAnalysis";
 import {
@@ -62,6 +70,7 @@ interface StudyContextValue {
     issueId: string,
     status: IssueStatus,
   ) => CommandResult;
+  importBatch: (session: BatchSession) => CommandResult<BatchCommitResult>;
   updatePreferences: (preferences: RoutePreferences) => void;
   checkReadiness: () => ReleaseResult;
   createSnapshot: () => CommandResult<Snapshot>;
@@ -255,6 +264,83 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     [state.issues, withCommandMeta],
   );
 
+  const importBatch = useCallback(
+    (session: BatchSession): CommandResult<BatchCommitResult> => {
+      const review = reviewBatch(session, state);
+      const blocking = review.rows.find((row, index) => {
+        const source = session.rows[index];
+        if (
+          source.kind === "recording" &&
+          row.duplicateOf === "recording"
+        )
+          return false;
+        return row.errors.length > 0;
+      });
+      if (blocking) {
+        return {
+          ok: false,
+          message: blocking.errors[0]?.message ?? "Fix the flagged rows first.",
+        };
+      }
+      const key = batchKey(session);
+      let commit: BatchCommitResult;
+      try {
+        commit = commitBatch(session, state);
+      } catch (error) {
+        return {
+          ok: false,
+          message:
+            error instanceof Error
+              ? error.message
+              : "The batch could not be received.",
+        };
+      }
+      if (
+        commit.counts.recordings === 0 &&
+        commit.counts.placements === 0 &&
+        commit.counts.issues === 0
+      ) {
+        return {
+          ok: false,
+          message:
+            "Every row in this batch is already in the study; nothing new to receive.",
+        };
+      }
+      // Stable, batch-derived command id: re-submitting the same batch replays
+      // the same command, which the reducer absorbs as a duplicate — combined
+      // with the per-entity natural keys this can never double recordings,
+      // route positions, or findings.
+      dispatch({
+        type: "batch/import",
+        session,
+        commit,
+        meta: {
+          commandId: `batch-command-${key}`,
+          expectedRevision: state.revision,
+          originId,
+          issuedAt: new Date().toISOString(),
+        },
+      });
+      const skippedNote = commit.counts.skipped
+        ? ` ${commit.counts.skipped} duplicate row${
+            commit.counts.skipped === 1 ? " was" : "s were"
+          } skipped.`
+        : "";
+      return {
+        ok: true,
+        value: commit,
+        message: `Received “${batchLabel(session)}”: ${commit.counts.recordings} clip${
+          commit.counts.recordings === 1 ? "" : "s"
+        }, ${commit.counts.placements} placement${
+          commit.counts.placements === 1 ? "" : "s"
+        }, ${commit.counts.issues} finding${
+          commit.counts.issues === 1 ? "" : "s"
+        }.${skippedNote}`,
+      };
+    },
+    [state, originId],
+  );
+
   const updatePreferences = useCallback((preferences: RoutePreferences) => {
     dispatch(withCommandMeta({ type: "preferences/update", preferences }));
   }, [withCommandMeta]);
@@ -307,6 +393,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       reorderRecording,
       addIssue,
       transitionQualityIssue,
+      importBatch,
       updatePreferences,
       checkReadiness,
       createSnapshot,
@@ -322,6 +409,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       reorderRecording,
       addIssue,
       transitionQualityIssue,
+      importBatch,
       updatePreferences,
       checkReadiness,
       createSnapshot,

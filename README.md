@@ -9,7 +9,18 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:4173`. The study is persisted in browser local storage under `signal-commons.workspace.v1`; the storage key is retained for compatibility while stored documents migrate to the current schema. A checksummed previous record is retained under `signal-commons.workspace.backup.v1` for recovery, and committed changes synchronize across open tabs. No network services or environment variables are required. Use the sidebar **Reset sample study** action to restore the built-in study.
+Open `http://127.0.0.1:4173`. The study is persisted in browser local storage under `signal-commons.workspace.v1`; the storage key is retained for compatibility while stored documents migrate to the current schema. A checksummed previous record is retained under `signal-commons.workspace.backup.v1` for recovery, and committed changes synchronize across open tabs. A field batch under review is kept separately under `signal-commons.batch-draft.v1` so reopening the app restores the reviewer's exact step without committing anything. No network services or environment variables are required. Use the sidebar **Reset sample study** action to restore the built-in study.
+
+## Importing a returning field batch
+
+Field material arriving together is handled through **Library → Import batch**:
+
+1. Paste the field team's JSON (or choose a `.json` file). Sections: `recordings` (each may carry an embedded `site`/`position`), standalone `placements`, and `issues`; an optional `batchId` and `label` identify the shipment.
+2. Choose **Review batch**. Every row is checked against the same rules as the single-clip editor (unique normalized catalogue IDs, complete capture context, valid audio spec, site clip/duration limits, sensitive-clip guidance, finding ownership and context) with results visible per row. Rows matching an already-received entity are marked **duplicate** rather than blocked.
+3. The **Receive** action stays disabled until every row passes; inline editing fixes problems without leaving the dialog.
+4. On receipt the whole batch lands as one revision-guarded command — recordings, route positions, and findings together. If any row still violates a rule at commit time, the reducer throws and no collection is replaced, so a failed batch can never leave half-imported data.
+
+The batch is identified by its explicit `batchId` (or a deterministic content fingerprint when absent). Recordings, (clip, site) positions, and findings carry deterministic batch-derived IDs and natural-key checks, so resubmitting the same shipment replays the same command and never duplicates a clip, route position, or finding. Each receipt is recorded in the workspace import ledger.
 
 ## Validation commands
 

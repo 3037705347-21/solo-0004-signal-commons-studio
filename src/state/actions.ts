@@ -6,6 +6,7 @@ import type {
   QualityIssue,
   StudyState,
 } from "../domain/models";
+import type { BatchSession, BatchCommitResult } from "../domain/batchImport";
 
 export interface CommandMeta {
   commandId: string;
@@ -39,6 +40,11 @@ type StudyActionPayload =
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
   | { type: "project/readiness"; release: ReleaseRecord }
+  | {
+      type: "batch/import";
+      session: BatchSession;
+      commit: BatchCommitResult;
+    }
   | { type: "workspace/reset"; state: StudyState }
   | { type: "workspace/sync"; state: StudyState };
 

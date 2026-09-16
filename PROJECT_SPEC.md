@@ -26,6 +26,10 @@ Signal Commons Studio is an offline-first browser workspace for community sounds
 
 The user opens the library, searches and filters recordings, adds a recording through a validated editor, and sees it enter the study. Duplicate catalogue IDs, missing titles or capture context, invalid audio specifications, and weak summaries are rejected with field-level messages. The recording is persisted in local storage and becomes available to the route editor.
 
+### 1a. Receive a returning field batch
+
+The user imports a field shipment as one JSON batch containing recordings (with optional embedded route positions), standalone placements, and quality findings. The batch opens in a review surface where every row is validated against the current library and the other rows before anything is saved. The user can fix flagged rows inline, remove rows, and review duplicate warnings; the receive action stays disabled while any row fails. Receiving the batch applies recordings, route positions, and findings as a single atomic, revision-guarded command — if any row violates a business rule at commit time, nothing is written. An in-progress batch is independently persisted, and a reopened app shows where the reviewer left off. Batches carry a stable identity (explicit batch id or deterministic content fingerprint) plus deterministic entity IDs, so resubmitting the same shipment is idempotent and cannot duplicate recordings, route positions, or findings; received batches are recorded in an import ledger.
+
 ### 2. Compose and validate a listening route
 
 The user opens the route view, selects an unplaced clip, assigns it to a listening site, changes sequence, and moves clips between sites. The domain engine recalculates site duration, clip utilization, signal-role coverage, and accessibility constraints after every transition. The constraint panel exposes blocking errors and warnings.
@@ -61,6 +65,9 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - A successful readiness check freezes a revision, deterministic content fingerprint, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
 - Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
+- A field batch is reviewed as a whole and committed atomically: a single invalid row rejects the entire batch without partial recordings, placements, or findings.
+- Batch identity is the explicit batch id or a deterministic content fingerprint; entity IDs derive from that identity, and duplicate catalogue IDs, (clip, site) positions, or matching findings are skipped, making repeated submission of the same batch idempotent.
+- A batch under review is persisted independently from workspace state so a reopened application resumes at the same step; receiving or discarding the batch clears that draft.
 
 ## Modules and dependency direction
 
@@ -79,6 +86,7 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - `StudyProvider` exposes typed commands and derived state to pages.
 - Local persistence key: `signal-commons.workspace.v1`.
 - Recovery backup key: `signal-commons.workspace.backup.v1`.
+- In-progress batch draft key: `signal-commons.batch-draft.v1`.
 - JSON snapshot download: `signal-commons-snapshot-<date>.json`.
 - Field checklist download: `signal-commons-route-checklist-<site>-<date>.csv`.
 - JSON snapshots use schema version 2 and include the frozen content revision, fingerprint, planning preferences, route summary, and unresolved findings.
@@ -86,10 +94,11 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 ## Validation plan
 
 - TypeScript compilation and Vite production build.
-- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, and versioned persistence.
+- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, versioned persistence, and batch import review, atomicity, and idempotency.
 - Playwright browser checks for the five user-facing workflows.
 - Playwright checks that invalid capacity placements are rejected before route state changes.
 - Playwright checks that committed workspace changes propagate to a second browser tab.
+- Playwright checks that a batch blocks receipt while any row fails, leaves no partial data after reload, resumes at the review step after reopening, and does not duplicate entities on resubmission.
 - Generic project audit verifies source scale, manifest consistency, and every declared workflow command.
 
 ## Intentionally omitted

@@ -1,5 +1,6 @@
 import { createId } from "../domain/ids";
 import { canPlaceRecording } from "../domain/routeAnalysis";
+import { commitBatch } from "../domain/batchImport";
 import { compactLog, makeLogEntry } from "../domain/studyLog";
 import {
   regressReadyProject,
@@ -306,6 +307,55 @@ export function workspaceReducer(
         action,
         regressReadyProject({ ...state, preferences: action.preferences }),
       );
+    case "batch/import": {
+      const disposition = commandDisposition(state, action);
+      if (disposition === "duplicate") return state;
+      if (disposition === "conflict") return rejectCommand(state, action);
+      // Recompute against the revision this command targets. The context
+      // layer pre-validates, but the reducer is the atomicity boundary:
+      // a failing row throws before any collection is replaced.
+      const verified = commitBatch(action.session, state);
+      if (
+        JSON.stringify({
+          r: verified.recordings.map((item) => item.id),
+          s: verified.sites.map((site) => site.recordingIds),
+          i: verified.issues.map((item) => item.id),
+        }) !==
+        JSON.stringify({
+          r: action.commit.recordings.map((item) => item.id),
+          s: action.commit.sites.map((site) => site.recordingIds),
+          i: action.commit.issues.map((item) => item.id),
+        })
+      ) {
+        throw new Error(
+          "The field batch changed between review and receipt and was not saved.",
+        );
+      }
+      const receipt = {
+        batchKey: verified.key,
+        label: verified.label,
+        receivedAt: new Date().toISOString(),
+        commandId: action.meta?.commandId ?? createId("command"),
+        revision: state.revision + 1,
+        recordingCount: verified.counts.recordings,
+        placementCount: verified.counts.placements,
+        issueCount: verified.counts.issues,
+        skippedCount: verified.counts.skipped,
+        catalogIds: verified.catalogIds,
+      };
+      const next: StudyState = {
+        ...state,
+        recordings: verified.recordings,
+        sites: verified.sites,
+        issues: verified.issues,
+        imports: [...(state.imports ?? []), receipt],
+      };
+      return finalizeAction(
+        regressReadyProject(invalidateRelease(next)),
+        action,
+        state.revision + 1,
+      );
+    }
     case "project/readiness": {
       const disposition = commandDisposition(state, action);
       if (disposition === "duplicate") return state;

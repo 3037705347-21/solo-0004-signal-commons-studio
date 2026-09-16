@@ -1,6 +1,7 @@
 import type {
   AudioSpec,
   CommandLogEntry,
+  ImportReceipt,
   QualityIssue,
   Recording,
   ReleaseRecord,
@@ -254,6 +255,24 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
   };
 }
 
+function isImportReceipt(value: unknown): value is ImportReceipt {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.batchKey) &&
+    isNonEmptyString(value.label) &&
+    isNonEmptyString(value.receivedAt) &&
+    isNonEmptyString(value.commandId) &&
+    Number.isInteger(value.revision) &&
+    Number(value.revision) >= 0 &&
+    Number.isInteger(value.recordingCount) &&
+    Number.isInteger(value.placementCount) &&
+    Number.isInteger(value.issueCount) &&
+    Number.isInteger(value.skippedCount) &&
+    Array.isArray(value.catalogIds) &&
+    value.catalogIds.every((id) => typeof id === "string")
+  );
+}
+
 function migratedUpdatedAt(state: StudyState): string {
   const timestamps = [
     state.project.lastReadinessCheck,
@@ -290,6 +309,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
       preferences: value.preferences,
       auditLog: [],
       release: null,
+      imports: [],
     };
     return {
       ...legacy,
@@ -304,6 +324,19 @@ export function migrateWorkspace(value: unknown): StudyState | null {
         .map(migrateAuditEntry)
         .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
+  const imports = Array.isArray(value.imports)
+    ? value.imports
+        .map((entry) => (isImportReceipt(entry) ? entry : null))
+        .filter((entry): entry is ImportReceipt => Boolean(entry))
+    : [];
+  // The receipt ledger is itself an idempotency boundary: drop duplicate keys,
+  // keeping the first receipt for each batch.
+  const seenBatchKeys = new Set<string>();
+  const dedupedImports = imports.filter((entry) => {
+    if (seenBatchKeys.has(entry.batchKey)) return false;
+    seenBatchKeys.add(entry.batchKey);
+    return true;
+  });
   return {
     version: 2,
     revision: Number(value.revision),
@@ -317,6 +350,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
     preferences: value.preferences,
     auditLog,
     release: migrateRelease(value.release),
+    imports: dedupedImports,
     lastSavedAt: isNonEmptyString(value.lastSavedAt)
       ? value.lastSavedAt
       : undefined,

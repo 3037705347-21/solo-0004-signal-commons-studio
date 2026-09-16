@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { analyzeRoute } from "../domain/routeAnalysis";
 import { createReleaseRecord } from "../domain/releaseRules";
+import {
+  batchKey,
+  commitBatch,
+  parseBatchText,
+  reviewBatch,
+} from "../domain/batchImport";
 import type { ReleaseResult } from "../domain/models";
 import { createSeedStudy } from "./seed";
 import { workspaceReducer } from "./reducer";
@@ -150,5 +156,110 @@ describe("workspace reducer boundaries", () => {
     expect(second.supersedes).toBe(first.id);
     expect(second.snapshot?.releaseId).toBe(second.id);
     expect(second.snapshot?.releaseSequence).toBe(2);
+  });
+});
+
+describe("batch import command", () => {
+  const validRecording = {
+    catalogId: "SC-26-777",
+    title: "Lantern workshop hush",
+    source: "Lin Qiao",
+    recordedOn: "2026-09-01",
+    format: "WAV",
+    location: "Lantern Lane",
+    summary:
+      "Brushes, paper, and a distant evening call settle into a quiet room.",
+    sampleRate: 48000,
+    channels: 2,
+    bitDepth: 24,
+    durationSeconds: 120,
+    signalRole: "arrival",
+    sensitivity: "public",
+    transcriptStatus: "draft",
+    consentStatus: "pending",
+  };
+
+  const batchAction = (state: ReturnType<typeof createSeedStudy>) => {
+    const parsed = parseBatchText(
+      JSON.stringify({ batchId: "sweep-reducer", recordings: [validRecording] }),
+    );
+    const session = parsed.session!;
+    const review = reviewBatch(session, state);
+    expect(review.invalidCount).toBe(0);
+    return { session, commit: commitBatch(session, state) };
+  };
+
+  it("records the batch in a single revision and leaves a receipt", () => {
+    const state = createSeedStudy();
+    const payload = batchAction(state);
+    const next = workspaceReducer(state, {
+      type: "batch/import",
+      ...payload,
+      meta: {
+        commandId: "batch-command-1",
+        expectedRevision: state.revision,
+        originId: "tab-a",
+        issuedAt: "2026-09-12T10:00:00.000Z",
+      },
+    });
+
+    expect(next.revision).toBe(state.revision + 1);
+    expect(next.recordings).toHaveLength(state.recordings.length + 1);
+    expect(next.imports).toHaveLength(1);
+    expect(next.imports[0]).toMatchObject({
+      recordingCount: 1,
+      batchKey: batchKey(payload.session),
+    });
+    expect(next.auditLog.at(-1)).toMatchObject({ action: "batch/import" });
+  });
+
+  it("replays the same batch command without duplicating recordings", () => {
+    const state = createSeedStudy();
+    const payload = batchAction(state);
+    const meta = {
+      commandId: "batch-command-same",
+      expectedRevision: state.revision,
+      originId: "tab-a",
+      issuedAt: "2026-09-12T10:00:00.000Z",
+    } as const;
+    const first = workspaceReducer(state, { type: "batch/import", ...payload, meta });
+    const replay = workspaceReducer(first, { type: "batch/import", ...payload, meta });
+
+    expect(replay).toBe(first);
+    expect(
+      replay.recordings.filter((recording) => recording.catalogId === "SC-26-777"),
+    ).toHaveLength(1);
+    expect(replay.imports).toHaveLength(1);
+  });
+
+  it("throws rather than leaving a half-applied batch when a row is invalid", () => {
+    const state = createSeedStudy();
+    const parsed = parseBatchText(
+      JSON.stringify({
+        batchId: "sweep-invalid",
+        recordings: [
+          validRecording,
+          { ...validRecording, catalogId: "SC-26-778", summary: "bad" },
+        ],
+      }),
+    );
+    const session = parsed.session!;
+    expect(() =>
+      workspaceReducer(state, {
+        type: "batch/import",
+        session,
+        // Deliberately bypassing commitBatch to prove the reducer re-validates.
+        commit: {
+          key: batchKey(session),
+          label: "x",
+          recordings: [...state.recordings],
+          sites: state.sites,
+          issues: state.issues,
+          counts: { recordings: 2, placements: 0, issues: 0, skipped: 0 },
+          catalogIds: ["SC-26-777", "SC-26-778"],
+        },
+      }),
+    ).toThrow();
+    expect(state.recordings).toHaveLength(createSeedStudy().recordings.length);
   });
 });
