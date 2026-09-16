@@ -19,7 +19,7 @@ import {
   captureBaseline,
   createHandoffPacket,
   effectiveReleaseState,
-  guardMutation,
+  guardWorkspaceMutation,
 } from "../domain/handoff";
 import {
   createReleaseRecord,
@@ -77,7 +77,7 @@ interface StudyContextValue {
     issueId: string,
     status: IssueStatus,
   ) => CommandResult;
-  updatePreferences: (preferences: RoutePreferences) => void;
+  updatePreferences: (preferences: RoutePreferences) => CommandResult;
   checkReadiness: () => ReleaseResult;
   createSnapshot: () => CommandResult<Snapshot>;
   beginHandoff: () => CommandResult;
@@ -88,6 +88,7 @@ interface StudyContextValue {
     receiverName: string,
     receiverNote: string,
   ) => CommandResult;
+  withdrawHandoff: (handoffId: string) => CommandResult;
   resetStudy: () => void;
 }
 
@@ -152,15 +153,13 @@ export function StudyProvider({ children }: { children: ReactNode }) {
           message: "Review the highlighted fields before saving.",
         };
       }
-      if (existing) {
-        const guard = guardMutation(state, { recordingId: existing.id });
-        if (guard.blocked) return { ok: false, message: guard.reason };
-      }
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
       const recording = recordingFromDraft(draft, existing);
       dispatch(withCommandMeta({ type: "recording/upsert", recording }));
       return { ok: true, value: recording };
     },
-    [state.recordings, state.handoffs, withCommandMeta],
+    [state, withCommandMeta],
   );
 
   const removeRecording = useCallback(
@@ -170,18 +169,18 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       );
       if (!recording)
         return { ok: false, message: "The selected clip no longer exists." };
-      const guard = guardMutation(state, { recordingId });
-      if (guard.blocked) return { ok: false, message: guard.reason };
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
       dispatch(withCommandMeta({ type: "recording/remove", recordingId }));
       return { ok: true };
     },
-    [state.recordings, state.handoffs, withCommandMeta],
+    [state, withCommandMeta],
   );
 
   const assignRecording = useCallback(
     (recordingId: string, siteId: string): CommandResult => {
-      const guard = guardMutation(state, { recordingId, siteId });
-      if (guard.blocked) return { ok: false, message: guard.reason };
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
       try {
         dispatch(
           withCommandMeta({ type: "placement/assign", recordingId, siteId }),
@@ -197,29 +196,23 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [state.handoffs, withCommandMeta],
+    [state, withCommandMeta],
   );
 
   const removePlacement = useCallback(
     (recordingId: string): CommandResult => {
-      const site = state.sites.find((candidate) =>
-        candidate.recordingIds.includes(recordingId),
-      );
-      const guard = guardMutation(state, {
-        recordingId,
-        siteId: site?.id,
-      });
-      if (guard.blocked) return { ok: false, message: guard.reason };
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
       dispatch(withCommandMeta({ type: "placement/remove", recordingId }));
       return { ok: true };
     },
-    [state.sites, state.handoffs, withCommandMeta],
+    [state, withCommandMeta],
   );
 
   const reorderRecording = useCallback(
     (siteId: string, recordingId: string, direction: -1 | 1): CommandResult => {
-      const guard = guardMutation(state, { recordingId, siteId });
-      if (guard.blocked) return { ok: false, message: guard.reason };
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
       try {
         dispatch(
           withCommandMeta({
@@ -240,39 +233,44 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [state.handoffs, withCommandMeta],
+    [state, withCommandMeta],
   );
 
-  const addIssue = useCallback((draft: IssueDraft): CommandResult => {
-    if (!draft.title.trim())
-      return { ok: false, errors: { title: "A finding title is required." } };
-    if (draft.description.trim().length < 16)
-      return {
-        ok: false,
-        errors: { description: "Add at least 16 characters of context." },
-      };
-    if (!draft.owner.trim())
-      return { ok: false, errors: { owner: "Assign an owner." } };
-    const now = new Date().toISOString();
-    dispatch(
-      withCommandMeta({
-        type: "issue/add",
-        issue: {
-          id: createId("issue"),
-          title: draft.title.trim(),
-          description: draft.description.trim(),
-          severity: draft.severity,
-          status: "open",
-          owner: draft.owner.trim(),
-          siteId: draft.siteId || undefined,
-          recordingId: draft.recordingId || undefined,
-          createdAt: now,
-          updatedAt: now,
-        },
-      }),
-    );
-    return { ok: true };
-  }, [withCommandMeta]);
+  const addIssue = useCallback(
+    (draft: IssueDraft): CommandResult => {
+      if (!draft.title.trim())
+        return { ok: false, errors: { title: "A finding title is required." } };
+      if (draft.description.trim().length < 16)
+        return {
+          ok: false,
+          errors: { description: "Add at least 16 characters of context." },
+        };
+      if (!draft.owner.trim())
+        return { ok: false, errors: { owner: "Assign an owner." } };
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
+      const now = new Date().toISOString();
+      dispatch(
+        withCommandMeta({
+          type: "issue/add",
+          issue: {
+            id: createId("issue"),
+            title: draft.title.trim(),
+            description: draft.description.trim(),
+            severity: draft.severity,
+            status: "open",
+            owner: draft.owner.trim(),
+            siteId: draft.siteId || undefined,
+            recordingId: draft.recordingId || undefined,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      );
+      return { ok: true };
+    },
+    [state, withCommandMeta],
+  );
 
   const transitionQualityIssue = useCallback(
     (issueId: string, status: IssueStatus): CommandResult => {
@@ -282,11 +280,8 @@ export function StudyProvider({ children }: { children: ReactNode }) {
           ok: false,
           message: "The selected review finding no longer exists.",
         };
-      const guard = guardMutation(state, {
-        recordingId: issue.recordingId,
-        siteId: issue.siteId,
-      });
-      if (guard.blocked) return { ok: false, message: guard.reason };
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
       try {
         dispatch(
           withCommandMeta({ type: "issue/transition", issueId, status }),
@@ -302,12 +297,18 @@ export function StudyProvider({ children }: { children: ReactNode }) {
         };
       }
     },
-    [state.issues, state.handoffs, withCommandMeta],
+    [state, withCommandMeta],
   );
 
-  const updatePreferences = useCallback((preferences: RoutePreferences) => {
-    dispatch(withCommandMeta({ type: "preferences/update", preferences }));
-  }, [withCommandMeta]);
+  const updatePreferences = useCallback(
+    (preferences: RoutePreferences): CommandResult => {
+      const freeze = guardWorkspaceMutation(state);
+      if (freeze.blocked) return { ok: false, message: freeze.reason };
+      dispatch(withCommandMeta({ type: "preferences/update", preferences }));
+      return { ok: true };
+    },
+    [state, withCommandMeta],
+  );
 
   const checkReadiness = useCallback(() => {
     const effective = effectiveReleaseState(state);
@@ -447,6 +448,24 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     [state.handoffs, withCommandMeta],
   );
 
+  const withdrawHandoff = useCallback(
+    (handoffId: string): CommandResult => {
+      const packet = state.handoffs.find(
+        (candidate) => candidate.id === handoffId,
+      );
+      if (!packet)
+        return { ok: false, message: "This handoff no longer exists." };
+      if (packet.status !== "pending")
+        return {
+          ok: false,
+          message: "Only a handoff awaiting confirmation can be withdrawn.",
+        };
+      dispatch(withCommandMeta({ type: "handoff/withdraw", handoffId }));
+      return { ok: true };
+    },
+    [state.handoffs, withCommandMeta],
+  );
+
   const resetStudy = useCallback(
     () =>
       dispatch(
@@ -475,6 +494,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       beginHandoff,
       createHandoff,
       decideHandoff,
+      withdrawHandoff,
       resetStudy,
     }),
     [
@@ -493,6 +513,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       beginHandoff,
       createHandoff,
       decideHandoff,
+      withdrawHandoff,
       resetStudy,
     ],
   );

@@ -31,6 +31,8 @@ export function describeAction(action: StudyAction): string {
       return action.decision === "accepted"
         ? "Accepted handoff packet and took over its scope"
         : "Declined handoff packet and rolled back its clips";
+    case "handoff/withdraw":
+      return "Withdrew handoff packet to keep editing";
     case "handoff/item-decide":
       return action.status === "accepted"
         ? "Confirmed a handover item"

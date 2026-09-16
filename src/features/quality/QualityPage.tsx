@@ -82,6 +82,9 @@ export function QualityPage() {
   const [toast, setToast] = useState<string | null>(null);
   const releaseCurrent = isReleaseCurrent(state, state.release);
   const exportReady = readiness.ready && releaseCurrent;
+  const handoffPending = state.handoffs.some(
+    (handoff) => handoff.status === "pending",
+  );
 
   useEffect(() => {
     saveReviewUi(reviewUi);
@@ -167,6 +170,12 @@ export function QualityPage() {
             <Button
               variant="primary"
               icon={<Plus size={17} />}
+              disabled={handoffPending}
+              title={
+                handoffPending
+                  ? "Findings are locked until the receiver confirms the handoff."
+                  : undefined
+              }
               onClick={() => setShowModal(true)}
             >
               New finding

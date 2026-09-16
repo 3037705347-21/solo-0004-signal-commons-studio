@@ -277,31 +277,54 @@ export interface HandoffGuard {
   reason?: string;
 }
 
-/** While a packet is pending, transferred content is frozen until the receiver decides. */
-export function guardMutation(
+const FREEZE_REASON =
+  "The handoff checklist is already with the receiver. Its scope is locked until they accept or decline, or you withdraw the packet to make more changes.";
+
+/**
+ * While a packet is pending, the whole study content is frozen so the
+ * confirmed checklist can never diverge from what the receiver actually takes
+ * over: no clip may be added, renamed, or removed, and no placement, finding,
+ * or planning preference may change either.
+ */
+export function guardWorkspaceMutation(state: StudyState): HandoffGuard {
+  return pendingHandoff(state) ? { blocked: true, reason: FREEZE_REASON } : { blocked: false };
+}
+
+/**
+ * Withdraw a packet the outgoing worker prepared but the receiver has not
+ * decided yet. The session stays open (its baseline is restored), so further
+ * work can be folded into a freshly prepared packet. Provenance tags the
+ * withdrawn packet stamped are removed because those entities are once more
+ * just part of the open session.
+ */
+export function withdrawHandoff(
   state: StudyState,
-  target: { recordingId?: string; siteId?: string },
-): HandoffGuard {
-  const packet = pendingHandoff(state);
-  if (!packet) return { blocked: false };
-  if (target.recordingId) {
-    const recording = state.recordings.find((r) => r.id === target.recordingId);
-    if (recording?.handoffId === packet.id) {
-      return {
-        blocked: true,
-        reason:
-          "This clip is inside a pending handoff. The receiver must accept or decline it before it can be changed.",
-      };
-    }
+  packet: HandoffPacket,
+  at = new Date(),
+): StudyState {
+  if (packet.status !== "pending") {
+    throw new Error("Only a pending handoff can be withdrawn.");
   }
-  if (target.siteId && packet.changes.some((c) => c.siteId === target.siteId)) {
-    return {
-      blocked: true,
-      reason:
-        "This site changed during the pending handoff session. Wait for the receiver to accept or decline the packet.",
-    };
-  }
-  return { blocked: false };
+  const withdrawn: HandoffPacket = {
+    ...packet,
+    status: "withdrawn",
+    withdrawnAt: at.toISOString(),
+  };
+  return {
+    ...state,
+    recordings: state.recordings.map((recording) =>
+      recording.handoffId === packet.id
+        ? { ...recording, handoffId: undefined }
+        : recording,
+    ),
+    issues: state.issues.map((issue) =>
+      issue.handoffId === packet.id ? { ...issue, handoffId: undefined } : issue,
+    ),
+    handoffs: state.handoffs.map((handoff) =>
+      handoff.id === packet.id ? withdrawn : handoff,
+    ),
+    activeBaseline: packet.baseline,
+  };
 }
 
 export function decideHandoff(

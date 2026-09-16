@@ -45,7 +45,7 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 
 ### 6. Hand off offline work between colleagues
 
-Before an offline session, the outgoing worker opens the handoff desk and starts a session, which captures a baseline revision and entity-id snapshot. They complete recordings, placements, and findings normally. When handing the shared browser to the next colleague, they prepare a handoff packet: both parties sign the record (outgoing and incoming names), the engine derives the full change list against the baseline (clips added/edited/removed, placements added/removed/reordered, findings added/updated/removed), and unfinished items with severity are attached. The packet is downloadable as a portable JSON list or a printable, signable Markdown checklist. While pending, content introduced by the session is quarantined: it is excluded from release evaluation and frozen against edits. The receiver reviews the same checklist, then accepts (scope enters normal release judgment and the items become traceable to that packet forever) or declines (content introduced only by that session is rolled back). Every packet keeps a monotonic sequence and the id of the previously accepted packet, and a provenance index traces each introduced clip and finding back to its handoff.
+Before an offline session, the outgoing worker opens the handoff desk and starts a session, which captures a baseline revision and entity-id snapshot. They complete recordings, placements, and findings normally. When handing the shared browser to the next colleague, they prepare a handoff packet: both parties sign the record (outgoing and incoming names), the engine derives the full change list against the baseline (clips added/edited/removed, placements added/removed/reordered, findings added/updated/removed), and unfinished items with severity are attached. The packet is downloadable as a portable JSON list or a printable, signable Markdown checklist. Once prepared, the entire study is frozen until the receiver decides — no clip may be added, renamed, edited, or removed, and no placement, finding, or planning preference may change — so the confirmed checklist can never drift from what is actually taken over. If the outgoing worker needs to fold in more work, they withdraw the packet (it stays in history as `withdrawn` and the session reopens), make the changes, and prepare a fresh packet that the receiver re-confirms. The receiver reviews the same checklist, then accepts (scope enters normal release judgment and the items become traceable to that packet forever) or declines (content introduced only by that session is rolled back). Every packet keeps a monotonic sequence and the id of the previously accepted packet, and a provenance index traces each introduced clip and finding back to its handoff.
 
 ## State and rules
 
@@ -67,7 +67,8 @@ Before an offline session, the outgoing worker opens the handoff desk and starts
 - Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage.
 - Handoff sessions capture a revision-bound baseline; preparing a packet freezes derived changes, unfinished items, and the revision range into a monotonic, append-only handoff history.
 - New clips and findings introduced during a handoff session carry the packet id as provenance. Provenance is excluded from the release fingerprint.
-- A pending handoff quarantines its introduced clips and findings from route/release analysis and locks them against edits; readiness checks cannot pass while a session is open or a packet is pending.
+- A prepared packet freezes all study content (clips, placements, findings, and preferences) until the receiver accepts or declines, or the outgoing worker withdraws it; readiness cannot pass while a session is open or a packet is pending, and pending-packet content is excluded from release analysis.
+- Withdrawing a pending packet marks it `withdrawn` in history, strips its provenance tags, and reopens the session baseline so further changes are folded into a freshly prepared, re-confirmed packet.
 - Accepting a packet releases its scope into normal judgment; declining it removes the clips and findings introduced only by that session (inherited baseline content is preserved) and marks the packet declined in history.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
 
@@ -102,7 +103,7 @@ Before an offline session, the outgoing worker opens the handoff desk and starts
 - Playwright browser checks for the five user-facing workflows.
 - Playwright checks that invalid capacity placements are rejected before route state changes.
 - Playwright checks that committed workspace changes propagate to a second browser tab.
-- Playwright checks that a prepared handoff quarantines new content from release until the receiver accepts it, and that declining rolls the session's new clip out of the study.
+- Playwright checks that a prepared handoff quarantines new content from release until the receiver accepts it, that no clip, placement, finding, or preference can change while the packet awaits confirmation, and that declining rolls the session's new clip out of the study; withdrawing a packet reopens the session so a re-prepared packet lists every later change.
 - Generic project audit verifies source scale, manifest consistency, and every declared workflow command.
 
 ## Intentionally omitted

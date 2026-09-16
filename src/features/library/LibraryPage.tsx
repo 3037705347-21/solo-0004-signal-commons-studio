@@ -34,7 +34,16 @@ export function LibraryPage() {
     draft: RecordingDraft;
     existing?: Recording;
   } | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{
+    tone: "positive" | "warning";
+    message: string;
+  } | null>(null);
+
+  const handoffPending = state.handoffs.some(
+    (handoff) => handoff.status === "pending",
+  );
+  const freezeMessage =
+    "The handoff checklist is with the receiver. Withdraw it on the Field handoff page before changing clips.";
 
   const filtered = useMemo(
     () =>
@@ -51,14 +60,22 @@ export function LibraryPage() {
     [state.recordings, query, roleFilter, sensitivityFilter],
   );
 
+  const notify = (tone: "positive" | "warning", message: string) => {
+    setFeedback({ tone, message });
+    window.setTimeout(() => setFeedback(null), 3600);
+  };
+
   const handleSave = (draft: RecordingDraft, existing?: Recording) => {
     const result = upsertRecording(draft, existing);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      if (result.message && !result.errors) notify("warning", result.message);
+      return result;
+    }
     setEditor(null);
-    setFeedback(
+    notify(
+      "positive",
       existing ? "Clip details updated." : "Clip added to the library.",
     );
-    window.setTimeout(() => setFeedback(null), 2400);
     return result;
   };
 
@@ -72,6 +89,8 @@ export function LibraryPage() {
           <Button
             variant="primary"
             icon={<Plus size={17} />}
+            disabled={handoffPending}
+            title={handoffPending ? freezeMessage : undefined}
             onClick={() => setEditor({ draft: emptyRecordingDraft })}
           >
             Add clip
@@ -192,6 +211,7 @@ export function LibraryPage() {
             <RecordingCard
               key={recording.id}
               recording={recording}
+              frozen={handoffPending}
               onEdit={() =>
                 setEditor({
                   draft: draftFromRecording(recording),
@@ -200,15 +220,24 @@ export function LibraryPage() {
               }
               onRemove={() => {
                 if (
-                  window.confirm(`Remove ${recording.title} from the library?`)
+                  !window.confirm(`Remove ${recording.title} from the library?`)
                 )
-                  removeRecording(recording.id);
+                  return;
+                const result = removeRecording(recording.id);
+                if (!result.ok)
+                  notify("warning", result.message ?? "Removal blocked.");
               }}
             />
           ))}
         </div>
       )}
-      {feedback && <div className="toast toast-positive">{feedback}</div>}
+      {feedback && (
+        <div
+          className={`toast ${feedback.tone === "warning" ? "toast-warning" : "toast-positive"}`}
+        >
+          {feedback.message}
+        </div>
+      )}
       {editor && (
         <RecordingEditor
           initial={editor.draft}
@@ -223,10 +252,12 @@ export function LibraryPage() {
 
 function RecordingCard({
   recording,
+  frozen,
   onEdit,
   onRemove,
 }: {
   recording: Recording;
+  frozen: boolean;
   onEdit: () => void;
   onRemove: () => void;
 }) {
@@ -235,10 +266,10 @@ function RecordingCard({
       <div className="recording-card-top">
         <RecordingGlyph color={recording.color} size="large" />
         <div className="recording-actions">
-          <Button variant="ghost" onClick={onEdit}>
+          <Button variant="ghost" disabled={frozen} onClick={onEdit}>
             Edit
           </Button>
-          <Button variant="ghost" onClick={onRemove}>
+          <Button variant="ghost" disabled={frozen} onClick={onRemove}>
             Remove
           </Button>
         </div>

@@ -66,7 +66,7 @@ export interface QualityIssue {
   handoffId?: string;
 }
 
-export type HandoffStatus = "pending" | "accepted" | "declined";
+export type HandoffStatus = "pending" | "accepted" | "declined" | "withdrawn";
 export type HandoffChangeKind =
   | "recording-added"
   | "recording-updated"
@@ -132,6 +132,7 @@ export interface HandoffPacket {
   decidedAt?: string;
   receiverName?: string;
   receiverNote?: string;
+  withdrawnAt?: string;
   supersedes?: string;
 }
 

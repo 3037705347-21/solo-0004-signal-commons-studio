@@ -53,6 +53,17 @@ export function RoutePage() {
       window.setTimeout(() => setNotice(null), 3200);
     }
   };
+  const reorder = (
+    siteId: string,
+    recordingId: string,
+    direction: -1 | 1,
+  ) => {
+    const result = reorderRecording(siteId, recordingId, direction);
+    if (!result.ok) {
+      setNotice(result.message ?? "Reorder blocked.");
+      window.setTimeout(() => setNotice(null), 3200);
+    }
+  };
   const place = (recording: Recording, site: Site) => {
     const recordingById = new Map(
       state.recordings.map((candidate) => [candidate.id, candidate]),
@@ -153,7 +164,7 @@ export function RoutePage() {
                   onSelect={setSelectedRecording}
                   onPlace={place}
                   onRemove={remove}
-                  onReorder={reorderRecording}
+                  onReorder={reorder}
                 />
               ))}
           </div>

@@ -23,7 +23,12 @@ const TRANSCRIPT_STATUSES = new Set(["missing", "draft", "verified"]);
 const CONSENT_STATUSES = new Set(["pending", "confirmed", "restricted"]);
 const ISSUE_SEVERITIES = new Set(["note", "warning", "critical"]);
 const ISSUE_STATUSES = new Set(["open", "in-progress", "resolved"]);
-const HANDOFF_STATUSES = new Set(["pending", "accepted", "declined"]);
+const HANDOFF_STATUSES = new Set([
+  "pending",
+  "accepted",
+  "declined",
+  "withdrawn",
+]);
 const HANDOFF_CHANGE_KINDS = new Set([
   "recording-added",
   "recording-updated",
@@ -433,6 +438,9 @@ function migrateHandoff(value: unknown): HandoffPacket | null {
       : undefined,
     receiverNote:
       typeof value.receiverNote === "string" ? value.receiverNote : undefined,
+    withdrawnAt: isNonEmptyString(value.withdrawnAt)
+      ? value.withdrawnAt
+      : undefined,
     supersedes: isNonEmptyString(value.supersedes)
       ? value.supersedes
       : undefined,

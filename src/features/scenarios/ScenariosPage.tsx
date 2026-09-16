@@ -25,6 +25,7 @@ export function ScenariosPage() {
   const { state, updatePreferences } = useStudy();
   const [draft, setDraft] = useState<RoutePreferences>(state.preferences);
   const [saved, setSaved] = useState(false);
+  const [blocked, setBlocked] = useState<string | null>(null);
   const analysis = useMemo(
     () => analyzeRoute(state.recordings, state.sites),
     [state.recordings, state.sites],
@@ -37,8 +38,16 @@ export function ScenariosPage() {
     key: K,
     value: RoutePreferences[K],
   ) => setDraft((current) => clampScenario({ ...current, [key]: value }));
+  const handoffPending = state.handoffs.some(
+    (handoff) => handoff.status === "pending",
+  );
   const apply = () => {
-    updatePreferences(draft);
+    const result = updatePreferences(draft);
+    if (!result.ok) {
+      setBlocked(result.message ?? "Planning preferences are locked.");
+      window.setTimeout(() => setBlocked(null), 3600);
+      return;
+    }
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2200);
   };
@@ -49,7 +58,13 @@ export function ScenariosPage() {
         title="Insights"
         description="Pressure-test the plan for different listener rhythms without changing the saved route."
         actions={
-          <Button variant="primary" icon={<Save size={16} />} onClick={apply}>
+          <Button
+            variant="primary"
+            icon={<Save size={16} />}
+            disabled={handoffPending}
+            title={handoffPending ? "Locked while a handoff awaits confirmation." : undefined}
+            onClick={apply}
+          >
             Apply preferences
           </Button>
         }
@@ -264,6 +279,12 @@ export function ScenariosPage() {
         <div className="toast toast-positive">
           <Save size={16} />
           Planning preferences applied.
+        </div>
+      )}
+      {blocked && (
+        <div className="toast toast-warning">
+          <Save size={16} />
+          {blocked}
         </div>
       )}
     </div>

@@ -66,6 +66,7 @@ type StudyActionPayload =
       receiverName: string;
       receiverNote: string;
     }
+  | { type: "handoff/withdraw"; handoffId: string }
   | {
       type: "handoff/item-decide";
       handoffId: string;

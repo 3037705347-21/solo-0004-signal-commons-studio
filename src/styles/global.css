@@ -1827,6 +1827,10 @@ strong {
   color: var(--amber);
   background: #f8ecd2;
 }
+.history-withdrawn {
+  color: var(--muted);
+  background: #e9e8e1;
+}
 .history-detail {
   display: grid;
   gap: 10px;

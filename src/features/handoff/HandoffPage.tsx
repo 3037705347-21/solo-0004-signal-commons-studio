@@ -13,6 +13,7 @@ import {
   Radio,
   ShieldAlert,
   Trash2,
+  Undo2,
   UserRound,
   XCircle,
 } from "lucide-react";
@@ -52,6 +53,7 @@ export function HandoffPage() {
     beginHandoff,
     createHandoff,
     decideHandoff,
+    withdrawHandoff,
   } = useStudy();
   const [showPrepare, setShowPrepare] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -122,6 +124,15 @@ export function HandoffPage() {
             } else {
               notify(result.message ?? "Decision could not be recorded.");
             }
+            return result;
+          }}
+          onWithdraw={() => {
+            const result = withdrawHandoff(pending.id);
+            notify(
+              result.ok
+                ? "Handoff withdrawn. The session is open again; prepare a fresh packet after your changes."
+                : result.message ?? "Could not withdraw the handoff.",
+            );
             return result;
           }}
           onDownload={(format) => {
@@ -220,6 +231,7 @@ const CHANGE_GROUPS: Array<{
 function PendingHandoffCard({
   packet,
   onDecide,
+  onWithdraw,
   onDownload,
 }: {
   packet: HandoffPacket;
@@ -228,6 +240,7 @@ function PendingHandoffCard({
     name: string,
     note: string,
   ) => { ok: boolean; errors?: Record<string, string>; message?: string };
+  onWithdraw: () => { ok: boolean; message?: string };
   onDownload: (format: "json" | "md") => void;
 }) {
   const [name, setName] = useState("");
@@ -262,6 +275,20 @@ function PendingHandoffCard({
           </Button>
           <Button variant="ghost" icon={<ClipboardList size={15} />} onClick={() => onDownload("md")}>
             Printable checklist
+          </Button>
+          <Button
+            variant="ghost"
+            icon={<Undo2 size={15} />}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Withdraw this handoff to make more changes? The receiver must then confirm a freshly prepared packet.",
+                )
+              )
+                onWithdraw();
+            }}
+          >
+            Withdraw &amp; keep editing
           </Button>
         </div>
       </div>
@@ -319,8 +346,9 @@ function PendingHandoffCard({
         <div className="signoff-copy">
           <Lock size={16} />
           <span>
-            Until you accept or decline, this content is quarantined from
-            readiness checks and locked against edits.
+            Until the receiver accepts or declines (or you withdraw the packet
+            to edit further), every clip, placement, finding, and preference is
+            locked so this checklist cannot drift from what is taken over.
           </span>
         </div>
         <div className="signoff-form">
@@ -364,7 +392,9 @@ function HistoryPacket({ packet }: { packet: HandoffPacket }) {
       ? "positive"
       : packet.status === "declined"
         ? "danger"
-        : "warning";
+        : packet.status === "withdrawn"
+          ? "neutral"
+          : "warning";
   return (
     <article className="history-packet">
       <button className="history-summary" onClick={() => setOpen((value) => !value)}>
@@ -373,6 +403,8 @@ function HistoryPacket({ packet }: { packet: HandoffPacket }) {
             <CheckCircle2 size={17} />
           ) : packet.status === "declined" ? (
             <XCircle size={17} />
+          ) : packet.status === "withdrawn" ? (
+            <Undo2 size={17} />
           ) : (
             <Lock size={17} />
           )}
@@ -384,7 +416,11 @@ function HistoryPacket({ packet }: { packet: HandoffPacket }) {
           <small>
             {formatDate(packet.createdAt)} · {packet.changes.length} changes ·{" "}
             {packet.openItems.length} open items
-            {packet.receiverName ? ` · decided by ${packet.receiverName}` : ""}
+            {packet.status === "withdrawn"
+              ? " · withdrawn before confirmation"
+              : packet.receiverName
+                ? ` · decided by ${packet.receiverName}`
+                : ""}
           </small>
         </span>
         <Badge tone={tone}>{titleCase(packet.status)}</Badge>

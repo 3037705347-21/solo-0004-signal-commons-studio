@@ -2,8 +2,9 @@ import { createId } from "../domain/ids";
 import { canPlaceRecording } from "../domain/routeAnalysis";
 import {
   decideHandoff,
-  guardMutation,
+  guardWorkspaceMutation,
   rollbackDeclinedHandoff,
+  withdrawHandoff,
 } from "../domain/handoff";
 import { compactLog, makeLogEntry } from "../domain/studyLog";
 import {
@@ -87,11 +88,8 @@ function invalidateRelease(state: StudyState): StudyState {
   };
 }
 
-function ensureNotQuarantined(
-  state: StudyState,
-  target: { recordingId?: string; siteId?: string },
-): void {
-  const guard = guardMutation(state, target);
+function ensureStudyNotFrozen(state: StudyState): void {
+  const guard = guardWorkspaceMutation(state);
   if (guard.blocked) throw new Error(guard.reason);
 }
 
@@ -224,13 +222,10 @@ export function workspaceReducer(
 ): StudyState {
   switch (action.type) {
     case "recording/upsert": {
-      const isNew = !state.recordings.some(
+      ensureStudyNotFrozen(state);
+      const exists = state.recordings.some(
         (recording) => recording.id === action.recording.id,
       );
-      if (!isNew) {
-        ensureNotQuarantined(state, { recordingId: action.recording.id });
-      }
-      const exists = !isNew;
       const recordings = exists
         ? state.recordings.map((recording) =>
             recording.id === action.recording.id ? action.recording : recording,
@@ -243,7 +238,7 @@ export function workspaceReducer(
       );
     }
     case "recording/remove": {
-      ensureNotQuarantined(state, { recordingId: action.recordingId });
+      ensureStudyNotFrozen(state);
       const withoutPlacement = removeRecordingFromSites(
         state,
         action.recordingId,
@@ -263,10 +258,7 @@ export function workspaceReducer(
       );
     }
     case "placement/assign": {
-      ensureNotQuarantined(state, {
-        recordingId: action.recordingId,
-        siteId: action.siteId,
-      });
+      ensureStudyNotFrozen(state);
       return mutate(
         state,
         action,
@@ -281,13 +273,7 @@ export function workspaceReducer(
       );
     }
     case "placement/remove": {
-      const site = state.sites.find((candidate) =>
-        candidate.recordingIds.includes(action.recordingId),
-      );
-      ensureNotQuarantined(state, {
-        recordingId: action.recordingId,
-        siteId: site?.id,
-      });
+      ensureStudyNotFrozen(state);
       return mutate(
         state,
         action,
@@ -297,10 +283,7 @@ export function workspaceReducer(
       );
     }
     case "placement/reorder": {
-      ensureNotQuarantined(state, {
-        recordingId: action.recordingId,
-        siteId: action.siteId,
-      });
+      ensureStudyNotFrozen(state);
       return mutate(
         state,
         action,
@@ -314,7 +297,8 @@ export function workspaceReducer(
         ),
       );
     }
-    case "issue/add":
+    case "issue/add": {
+      ensureStudyNotFrozen(state);
       return mutate(
         state,
         action,
@@ -323,16 +307,9 @@ export function workspaceReducer(
           issues: [action.issue, ...state.issues],
         }),
       );
+    }
     case "issue/transition": {
-      const issue = state.issues.find(
-        (candidate) => candidate.id === action.issueId,
-      );
-      if (issue) {
-        ensureNotQuarantined(state, {
-          recordingId: issue.recordingId,
-          siteId: issue.siteId,
-        });
-      }
+      ensureStudyNotFrozen(state);
       return mutate(
         state,
         action,
@@ -346,12 +323,14 @@ export function workspaceReducer(
         }),
       );
     }
-    case "preferences/update":
+    case "preferences/update": {
+      ensureStudyNotFrozen(state);
       return mutate(
         state,
         action,
         regressReadyProject({ ...state, preferences: action.preferences }),
       );
+    }
     case "project/readiness": {
       const disposition = commandDisposition(state, action);
       if (disposition === "duplicate") return state;
@@ -425,6 +404,14 @@ export function workspaceReducer(
           ? rollbackDeclinedHandoff(withPacket, decided)
           : withPacket;
       return mutate(state, action, regressReadyProject(next));
+    }
+    case "handoff/withdraw": {
+      const packet = state.handoffs.find(
+        (handoff) => handoff.id === action.handoffId,
+      );
+      if (!packet) throw new Error("Unknown handoff packet.");
+      const next = withdrawHandoff(state, packet);
+      return mutate(state, action, next);
     }
     case "handoff/item-decide": {
       const next: StudyState = {

@@ -117,3 +117,82 @@ test("declining a pending handoff rolls its new clip out of the study", async ({
     page.getByText("Clip that will be returned"),
   ).toHaveCount(0);
 });
+
+test("locks the prepared checklist until the receiver confirms; withdrawing reopens editing", async ({
+  page,
+}) => {
+  await page.goto("/handoff");
+  await page.getByRole("button", { name: "Start offline session" }).click();
+  await page.goto("/library");
+  await page.getByRole("button", { name: "Add clip" }).first().click();
+  await page.getByLabel("Catalog ID").fill("SC-HANDOFF-03");
+  await page.getByLabel("Title").fill("Clip listed in the packet");
+  await page.getByLabel("Recorder / source").fill("Off-grid crew");
+  await page.getByLabel("Recording date").fill("2027-05-04");
+  await page.getByLabel("File format").fill("WAV");
+  await page.getByLabel("Location").fill("West gate");
+  await page
+    .getByLabel("Clip summary")
+    .fill("A take that is correctly part of the prepared checklist.");
+  await page.getByRole("button", { name: "Add clip" }).last().click();
+
+  await page.goto("/handoff");
+  await page.getByRole("button", { name: "Prepare handoff" }).click();
+  await page.getByLabel("Outgoing colleague").fill("Lin Qiao");
+  await page.getByLabel("Receiving colleague").fill("Amina Patel");
+  await page.getByRole("button", { name: "Prepare packet" }).click();
+  await expect(
+    page.getByText("New clip SC-HANDOFF-03 · Clip listed in the packet"),
+  ).toBeVisible();
+
+  // Once prepared, the library cannot add or change any clip: the confirmed
+  // checklist must not diverge from what the receiver actually takes over.
+  await page.goto("/library");
+  await expect(page.getByRole("button", { name: "Add clip" })).toBeDisabled();
+  const editButtons = await page
+    .getByRole("button", { name: "Edit" })
+    .all();
+  for (const button of editButtons) await expect(button).toBeDisabled();
+
+  // The outgoing worker withdraws to fold in one more change, then re-prepares.
+  await page.goto("/handoff");
+  page.on("dialog", (dialog) => dialog.accept());
+  await page
+    .getByRole("button", { name: /Withdraw & keep editing/ })
+    .click();
+  await expect(page.getByText("Handoff withdrawn")).toBeVisible();
+  await expect(page.getByText("OFFLINE SESSION ACTIVE")).toBeVisible();
+
+  await page.goto("/library");
+  await page.getByRole("button", { name: "Add clip" }).first().click();
+  await page.getByLabel("Catalog ID").fill("SC-HANDOFF-04");
+  await page.getByLabel("Title").fill("Clip added after withdrawal");
+  await page.getByLabel("Recorder / source").fill("Off-grid crew");
+  await page.getByLabel("Recording date").fill("2027-05-05");
+  await page.getByLabel("File format").fill("WAV");
+  await page.getByLabel("Location").fill("West gate");
+  await page
+    .getByLabel("Clip summary")
+    .fill("A late take that must appear on the freshly reconfirmed checklist.");
+  await page.getByRole("button", { name: "Add clip" }).last().click();
+  await expect(page.getByText("Clip added after withdrawal")).toBeVisible();
+
+  await page.goto("/handoff");
+  await page.getByRole("button", { name: "Prepare handoff" }).click();
+  await page.getByLabel("Outgoing colleague").fill("Lin Qiao");
+  await page.getByLabel("Receiving colleague").fill("Amina Patel");
+  await page.getByRole("button", { name: "Prepare packet" }).click();
+
+  // The new packet (#2) lists BOTH clips, so nothing is hidden from the receiver.
+  await expect(
+    page.getByRole("heading", { name: /Handoff #2 · Lin Qiao/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("New clip SC-HANDOFF-03 · Clip listed in the packet"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("New clip SC-HANDOFF-04 · Clip added after withdrawal"),
+  ).toBeVisible();
+  // The withdrawn first packet remains in history.
+  await expect(page.getByText("withdrawn before confirmation")).toBeVisible();
+});

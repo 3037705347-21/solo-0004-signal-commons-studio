@@ -7,10 +7,11 @@ import {
   createHandoffPacket,
   decideHandoff,
   deriveChanges,
-  guardMutation,
+  guardWorkspaceMutation,
   pendingHandoff,
   releaseHandoffBlockers,
   rollbackDeclinedHandoff,
+  withdrawHandoff,
 } from "./handoff";
 import { createSeedStudy } from "../state/seed";
 import { workspaceReducer } from "../state/reducer";
@@ -163,7 +164,7 @@ describe("handoff packet lifecycle", () => {
     expect(result.ready).toBe(false);
   });
 
-  it("freezes quarantined clips against edits until the receiver decides", () => {
+  it("freezes every content change until the receiver decides, including renames and late additions", () => {
     const { state, recording } = seedWithRecording();
     const baseline = captureBaseline(state);
     const withClip: StudyState = {
@@ -188,15 +189,112 @@ describe("handoff packet lifecycle", () => {
       handoffs: [packet],
     };
     expect(pendingHandoff(pending)?.id).toBe(packet.id);
-    expect(guardMutation(pending, { recordingId: recording.id }).blocked).toBe(
-      true,
-    );
+    expect(guardWorkspaceMutation(pending).blocked).toBe(true);
+
+    // A session-introduced clip cannot be removed.
     expect(() =>
       workspaceReducer(pending, {
         type: "recording/remove",
         recordingId: recording.id,
       }),
-    ).toThrow(/pending handoff/);
+    ).toThrow(/with the receiver/);
+
+    // An inherited (baseline) clip cannot be renamed either — this is the
+    // divergence that previously let a new title bypass the checklist.
+    const baselineClip = pending.recordings[0];
+    expect(() =>
+      workspaceReducer(pending, {
+        type: "recording/upsert",
+        recording: { ...baselineClip, title: "Renamed after packet" },
+      }),
+    ).toThrow(/with the receiver/);
+
+    // A brand new clip cannot be added after the packet was prepared, so it
+    // can never silently land in release judgment without being listed.
+    const lateClip: Recording = {
+      ...recording,
+      id: "rec-late",
+      catalogId: "SC-26-901",
+    };
+    expect(() =>
+      workspaceReducer(pending, {
+        type: "recording/upsert",
+        recording: lateClip,
+      }),
+    ).toThrow(/with the receiver/);
+
+    // Placements, findings, and preferences are locked as well.
+    expect(() =>
+      workspaceReducer(pending, {
+        type: "placement/assign",
+        recordingId: "rec-bus",
+        siteId: "site-rhythm",
+      }),
+    ).toThrow(/with the receiver/);
+    expect(() =>
+      workspaceReducer(pending, {
+        type: "preferences/update",
+        preferences: { ...pending.preferences, listenerCount: 12 },
+      }),
+    ).toThrow(/with the receiver/);
+  });
+
+  it("withdrawing a packet reopens the session, strips provenance, and re-enables edits", () => {
+    const { state, recording } = seedWithRecording();
+    const baseline = captureBaseline(state);
+    const withClip: StudyState = {
+      ...state,
+      recordings: [...state.recordings, recording],
+    };
+    const { packet, recordings, issues } = createHandoffPacket(
+      withClip,
+      baseline,
+      {
+        outgoingName: "Lin",
+        outgoingRole: "",
+        incomingName: "Amina",
+        note: "",
+        openItems: [],
+      },
+    );
+    const pending: StudyState = {
+      ...withClip,
+      recordings,
+      issues,
+      handoffs: [packet],
+    };
+    const reopened = withdrawHandoff(pending, packet);
+    expect(reopened.handoffs[0].status).toBe("withdrawn");
+    expect(reopened.activeBaseline?.revision).toBe(baseline.revision);
+    expect(
+      reopened.recordings.find((r) => r.id === recording.id)?.handoffId,
+    ).toBeUndefined();
+    expect(guardWorkspaceMutation(reopened).blocked).toBe(false);
+
+    // Editing resumes, and a fresh packet can be prepared from the session.
+    const edited = workspaceReducer(reopened, {
+      type: "recording/upsert",
+      recording: { ...recording, title: "Night chorus, second pass" },
+    });
+    expect(edited.recordings.find((r) => r.id === recording.id)?.title).toBe(
+      "Night chorus, second pass",
+    );
+    const reprepared = createHandoffPacket(
+      edited,
+      reopened.activeBaseline as NonNullable<typeof reopened.activeBaseline>,
+      {
+        outgoingName: "Lin",
+        outgoingRole: "",
+        incomingName: "Amina",
+        note: "",
+        openItems: [],
+      },
+    );
+    expect(reprepared.packet.sequence).toBe(2);
+    expect(reprepared.packet.status).toBe("pending");
+    expect(
+      reprepared.recordings.find((r) => r.id === recording.id)?.handoffId,
+    ).toBe(reprepared.packet.id);
   });
 
   it("acceptance releases the scope into normal release judgment", () => {
@@ -235,9 +333,7 @@ describe("handoff packet lifecycle", () => {
     };
     expect(pendingHandoff(accepted)).toBeUndefined();
     expect(releaseHandoffBlockers(accepted)).toEqual([]);
-    expect(
-      guardMutation(accepted, { recordingId: recording.id }).blocked,
-    ).toBe(false);
+    expect(guardWorkspaceMutation(accepted).blocked).toBe(false);
     expect(acceptedPacket.receiverName).toBe("Amina Patel");
   });
 
