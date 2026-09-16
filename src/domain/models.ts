@@ -91,8 +91,25 @@ export interface CommandLogEntry {
   actor: "local-user" | "system";
 }
 
+/**
+ * Immutable projection captured at check time. Historical versions rely on this
+ * copy for comparison and draft restoration even after the live workspace has
+ * moved on.
+ */
+export interface ReleaseContent {
+  capturedAt: string;
+  project: Pick<
+    FieldStudy,
+    "id" | "title" | "fieldArea" | "listeningQuestion" | "publicationDate"
+  >;
+  recordings: Recording[];
+  sites: Site[];
+  issues: QualityIssue[];
+  preferences: RoutePreferences;
+}
+
 export interface StudyState {
-  version: 2;
+  version: 3;
   revision: number;
   updatedAt: string;
   project: FieldStudy;
@@ -102,6 +119,10 @@ export interface StudyState {
   preferences: RoutePreferences;
   auditLog: CommandLogEntry[];
   release: ReleaseRecord | null;
+  /** Append-only lineage; entries are never rewritten once recorded. */
+  releaseHistory: ReleaseRecord[];
+  /** Release sequence the working review draft was forked from, if any. */
+  draftSourceReleaseId?: string;
   lastSavedAt?: string;
 }
 
@@ -198,12 +219,18 @@ export interface ReleaseRecord {
   id: string;
   sequence: number;
   createdAt: string;
+  /**
+   * Status evaluated at check time: "ready" or "blocked". The live head copy
+   * may later be marked "stale"; history entries keep their evaluated status.
+   */
   status: "ready" | "blocked" | "stale";
   revision: number;
   fingerprint: string;
   supersedes?: string;
   readiness: ReleaseResult;
   snapshot?: Snapshot;
+  /** Frozen workspace content used for version comparison and draft forking. */
+  content?: ReleaseContent;
 }
 
 export interface Snapshot {

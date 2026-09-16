@@ -78,8 +78,54 @@ function invalidateRelease(state: StudyState): StudyState {
   if (!state.release || state.release.status === "stale") return state;
   return {
     ...state,
+    // Only the live head is marked stale; immutable history entries keep the
+    // status they were evaluated with.
     release: { ...state.release, status: "stale" },
   };
+}
+
+function cloneContent<T>(value: T): T {
+  return structuredClone(value);
+}
+
+/**
+ * Forks the frozen content of a historical version into a fresh review draft.
+ * History is never rewritten, and the previously publishable head is marked
+ * stale so the workspace cannot be mistaken for still being on that release.
+ */
+function forkDraftFromRelease(
+  state: StudyState,
+  releaseId: string,
+): StudyState {
+  const entry = state.releaseHistory.find(
+    (candidate) => candidate.id === releaseId,
+  );
+  if (!entry?.content) {
+    throw new Error("That release version is no longer available to restore.");
+  }
+  const content = entry.content;
+  const forked: StudyState = {
+    ...state,
+    project: {
+      ...state.project,
+      title: content.project.title,
+      fieldArea: content.project.fieldArea,
+      listeningQuestion: content.project.listeningQuestion,
+      publicationDate: content.project.publicationDate,
+      stage: "review",
+      lastReadinessCheck: undefined,
+    },
+    recordings: cloneContent(content.recordings),
+    sites: cloneContent(content.sites),
+    issues: cloneContent(content.issues),
+    preferences: cloneContent(content.preferences),
+    release:
+      state.release && state.release.status !== "stale"
+        ? { ...state.release, status: "stale" }
+        : state.release,
+    draftSourceReleaseId: entry.id,
+  };
+  return forked;
 }
 
 function mutate(
@@ -314,6 +360,14 @@ export function workspaceReducer(
         state,
         action.release.readiness.ready,
       );
+      // Append-only lineage: the frozen record is shared by reference with the
+      // live head but never edited after this point.
+      const releaseHistory = [
+        ...state.releaseHistory.filter(
+          (entry) => entry.id !== action.release.id,
+        ),
+        action.release,
+      ].sort((left, right) => left.sequence - right.sequence);
       return finalizeAction(
         {
           ...staged,
@@ -322,10 +376,19 @@ export function workspaceReducer(
             lastReadinessCheck: action.release.readiness.checkedAt,
           },
           release: action.release,
+          releaseHistory,
+          draftSourceReleaseId: undefined,
         },
         action,
         state.revision,
       );
+    }
+    case "release/fork-draft": {
+      const disposition = commandDisposition(state, action);
+      if (disposition === "duplicate") return state;
+      if (disposition === "conflict") return rejectCommand(state, action);
+      const next = forkDraftFromRelease(state, action.releaseId);
+      return finalizeAction(next, action, state.revision + 1);
     }
     case "workspace/reset":
       return action.state;

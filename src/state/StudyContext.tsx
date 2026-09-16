@@ -20,6 +20,7 @@ import {
   evaluateRelease,
   isReleaseCurrent,
 } from "../domain/releaseRules";
+import { canForkDraft, findRelease } from "../domain/releaseHistory";
 import type {
   Recording,
   RecordingDraft,
@@ -65,6 +66,7 @@ interface StudyContextValue {
   updatePreferences: (preferences: RoutePreferences) => void;
   checkReadiness: () => ReleaseResult;
   createSnapshot: () => CommandResult<Snapshot>;
+  restoreDraftFromRelease: (releaseId: string) => CommandResult;
   resetStudy: () => void;
 }
 
@@ -285,6 +287,38 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     };
   }, [state]);
 
+  const restoreDraftFromRelease = useCallback(
+    (releaseId: string): CommandResult => {
+      const entry = findRelease(state.releaseHistory, releaseId);
+      if (!entry)
+        return {
+          ok: false,
+          message: "That release version no longer exists in this workspace.",
+        };
+      if (!canForkDraft(entry))
+        return {
+          ok: false,
+          message:
+            "This version predates frozen release content and cannot seed a draft.",
+        };
+      try {
+        dispatch(
+          withCommandMeta({ type: "release/fork-draft", releaseId }),
+        );
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          message:
+            error instanceof Error
+              ? error.message
+              : "The review draft could not be created.",
+        };
+      }
+    },
+    [state.releaseHistory, withCommandMeta],
+  );
+
   const resetStudy = useCallback(
     () =>
       dispatch(
@@ -310,6 +344,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       checkReadiness,
       createSnapshot,
+      restoreDraftFromRelease,
       resetStudy,
     }),
     [
@@ -325,6 +360,7 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       checkReadiness,
       createSnapshot,
+      restoreDraftFromRelease,
       resetStudy,
     ],
   );

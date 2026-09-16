@@ -8,6 +8,13 @@ import type {
 } from "./models";
 import { createId } from "./ids";
 import { releaseFingerprint } from "./releaseIdentity";
+import { captureReleaseContent } from "./releaseHistory";
+
+function freezeRelease(record: ReleaseRecord): ReleaseRecord {
+  if (record.content) Object.freeze(record.content);
+  if (record.snapshot) Object.freeze(record.snapshot);
+  return Object.freeze(record);
+}
 export function evaluateRelease(
   state: StudyState,
   analysis: RouteAnalysis,
@@ -117,6 +124,10 @@ export function createReleaseRecord(
 ): ReleaseRecord {
   const releaseId = createId("release");
   const releaseSequence = (state.release?.sequence ?? 0) + 1;
+  // A new check supersedes the previous head, whether that check passed or not.
+  const supersedes =
+    state.releaseHistory.at(-1)?.id ?? state.release?.id;
+  const content = captureReleaseContent(state, readiness.checkedAt);
   const snapshot = readiness.ready
     ? buildReleaseSnapshot(
         state,
@@ -126,23 +137,28 @@ export function createReleaseRecord(
         releaseSequence,
       )
     : undefined;
-  return {
+  const record: ReleaseRecord = {
     id: releaseId,
     sequence: releaseSequence,
     createdAt: readiness.checkedAt,
     status: readiness.ready ? "ready" : "blocked",
     revision: state.revision,
     fingerprint: snapshot?.fingerprint ?? releaseFingerprint(state),
-    supersedes: state.release?.id,
+    supersedes,
     readiness,
     snapshot,
+    content,
   };
+  return freezeRelease(record);
 }
 
 export function isReleaseCurrent(
   state: StudyState,
   release: ReleaseRecord | null | undefined,
 ): release is ReleaseRecord & { status: "ready"; snapshot: Snapshot } {
+  // A draft forked from history never revives the release it was copied from;
+  // a fresh readiness check must clear draftSourceReleaseId before publishing.
+  if (state.draftSourceReleaseId) return false;
   return (
     release?.status === "ready" &&
     Boolean(release.snapshot) &&

@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
+import { Callout } from "../../components/Callout";
 import { EmptyState } from "../../components/EmptyState";
 import { Modal } from "../../components/Modal";
 import { SectionHeader } from "../../components/SectionHeader";
@@ -49,6 +50,7 @@ import {
   type ReviewUiState,
 } from "../../state/persistence";
 import { useStudy } from "../../state/StudyContext";
+import { ReleaseHistoryButton } from "./ReleaseHistoryPanel";
 
 type StatusFilter = IssueStatus | "all";
 const STATUS_FILTERS: StatusFilter[] = [
@@ -92,6 +94,12 @@ export function QualityPage() {
   const sites = useMemo(() => sortSites(state.sites), [state.sites]);
   const selectedSite = sites.find((site) => site.id === reviewUi.siteId);
   const filter = reviewUi.status;
+
+  const draftSource = state.draftSourceReleaseId
+    ? state.releaseHistory.find(
+        (entry) => entry.id === state.draftSourceReleaseId,
+      )
+    : undefined;
 
   const scopedIssues = useMemo<QualityIssue[]>(() => {
     if (!selectedSite) return state.issues;
@@ -157,6 +165,7 @@ export function QualityPage() {
             >
               Run readiness check
             </Button>
+            <ReleaseHistoryButton />
             <Button
               variant="primary"
               icon={<Plus size={17} />}
@@ -167,6 +176,19 @@ export function QualityPage() {
           </div>
         }
       />
+      {draftSource && (
+        <Callout
+          tone="warning"
+          title={`Review draft seeded from v${draftSource.sequence}`}
+        >
+          You are editing a fresh draft copied from the {formatDate(
+            draftSource.createdAt,
+          )}{" "}
+          version. That historical version stays frozen and unmodified, and the
+          previous release is no longer current. Run a readiness check to record
+          a new version.
+        </Callout>
+      )}
       <section
         className={`readiness-card ${exportReady ? "ready" : "blocked"}`}
       >

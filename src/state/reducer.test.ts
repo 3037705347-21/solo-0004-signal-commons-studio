@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeRoute } from "../domain/routeAnalysis";
-import { createReleaseRecord } from "../domain/releaseRules";
+import { createReleaseRecord, isReleaseCurrent } from "../domain/releaseRules";
 import type { ReleaseResult } from "../domain/models";
 import { createSeedStudy } from "./seed";
 import { workspaceReducer } from "./reducer";
@@ -150,5 +150,130 @@ describe("workspace reducer boundaries", () => {
     expect(second.supersedes).toBe(first.id);
     expect(second.snapshot?.releaseId).toBe(second.id);
     expect(second.snapshot?.releaseSequence).toBe(2);
+  });
+
+  it("appends every readiness check to immutable history without gaps in sequence", () => {
+    const state = createSeedStudy();
+    const analysis = analyzeRoute(state.recordings, state.sites);
+    const blocked: ReleaseResult = {
+      ready: false,
+      score: 30,
+      blockers: ["Critical findings remain unresolved."],
+      cautions: [],
+      checkedAt: "2026-09-10T10:00:00.000Z",
+    };
+    const firstRecord = createReleaseRecord(state, analysis, blocked);
+    const first = workspaceReducer(state, {
+      type: "project/readiness",
+      release: firstRecord,
+    });
+    const passingRecord = createReleaseRecord(
+      first,
+      analysis,
+      { ...blocked, ready: true, blockers: [], score: 100, checkedAt: "2026-09-11T10:00:00.000Z" },
+    );
+    const second = workspaceReducer(first, {
+      type: "project/readiness",
+      release: passingRecord,
+    });
+
+    expect(second.releaseHistory.map((entry) => entry.sequence)).toEqual([1, 2]);
+    expect(second.releaseHistory[0]).toBe(firstRecord);
+    expect(second.releaseHistory[1].supersedes).toBe(firstRecord.id);
+    // History entries retain the status evaluated at check time.
+    expect(second.releaseHistory[0].status).toBe("blocked");
+  });
+
+  it("forks an old version into a fresh review draft without mutating history", () => {
+    const state = createSeedStudy();
+    const analysis = analyzeRoute(state.recordings, state.sites);
+    const firstRecord = createReleaseRecord(state, analysis, {
+      ready: true,
+      score: 100,
+      blockers: [],
+      cautions: [],
+      checkedAt: "2026-09-10T10:00:00.000Z",
+    });
+    const frozen = workspaceReducer(state, {
+      type: "project/readiness",
+      release: firstRecord,
+    });
+    const edited = workspaceReducer(frozen, {
+      type: "recording/remove",
+      recordingId: "rec-bus",
+    });
+    expect(edited.release?.status).toBe("stale");
+
+    const forked = workspaceReducer(edited, {
+      type: "release/fork-draft",
+      releaseId: firstRecord.id,
+    });
+
+    const restored = forked.recordings.find(
+      (recording) => recording.id === "rec-bus",
+    );
+    expect(restored).toBeDefined();
+    expect(forked.project.stage).toBe("review");
+    expect(forked.draftSourceReleaseId).toBe(firstRecord.id);
+    // The live publishable head is invalidated...
+    expect(forked.release?.status).toBe("stale");
+    // ...while the immutable history version stays approved.
+    const historyEntry = forked.releaseHistory.find(
+      (entry) => entry.id === firstRecord.id,
+    );
+    expect(historyEntry?.status).toBe("ready");
+    expect(historyEntry?.content?.recordings).toHaveLength(
+      firstRecord.content!.recordings.length,
+    );
+    expect(forked.revision).toBe(edited.revision + 1);
+  });
+
+  it("rejects forking an unknown release without changing the workspace", () => {
+    const state = createSeedStudy();
+    expect(() =>
+      workspaceReducer(state, {
+        type: "release/fork-draft",
+        releaseId: "release-missing",
+      }),
+    ).toThrow(/no longer available/);
+  });
+
+  it("never treats a forked draft as still matching a publishable release", () => {
+    const state = createSeedStudy();
+    const analysis = analyzeRoute(state.recordings, state.sites);
+    const record = createReleaseRecord(state, analysis, {
+      ready: true,
+      score: 100,
+      blockers: [],
+      cautions: [],
+      checkedAt: "2026-09-10T10:00:00.000Z",
+    });
+    const frozen = workspaceReducer(state, {
+      type: "project/readiness",
+      release: record,
+    });
+    const forked = workspaceReducer(frozen, {
+      type: "release/fork-draft",
+      releaseId: record.id,
+    });
+    // Identical frozen content, but the draft cannot revive the old release.
+    expect(isReleaseCurrent(forked, forked.release)).toBe(false);
+
+    // A fresh readiness check records a new version and restores publishability.
+    const refreshed = workspaceReducer(forked, {
+      type: "project/readiness",
+      release: createReleaseRecord(forked, analysis, {
+        ready: true,
+        score: 100,
+        blockers: [],
+        cautions: [],
+        checkedAt: "2026-09-12T10:00:00.000Z",
+      }),
+    });
+    expect(refreshed.draftSourceReleaseId).toBeUndefined();
+    expect(isReleaseCurrent(refreshed, refreshed.release)).toBe(true);
+    expect(refreshed.releaseHistory.map((entry) => entry.sequence)).toEqual([
+      1, 2,
+    ]);
   });
 });

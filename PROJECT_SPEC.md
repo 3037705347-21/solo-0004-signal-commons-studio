@@ -19,6 +19,7 @@ Signal Commons Studio is an offline-first browser workspace for community sounds
 - `Placement`: assignment of a recording to a site and position in the route.
 - `QualityIssue`: a severity-ranked evidence finding linked to a site or clip, with open, in-progress, or resolved state.
 - `Snapshot`: a frozen release summary used for local export and comparison.
+- `ReleaseRecord`: one readiness check with sequence, evaluated status (ready/blocked), frozen revision and fingerprint, the prior record it supersedes, a full frozen content projection, and (when passing) an exportable snapshot. The append-only release history is the traceable lineage of every check.
 
 ## Workflows
 
@@ -33,6 +34,10 @@ The user opens the route view, selects an unplaced clip, assigns it to a listeni
 ### 3. Resolve evidence quality before release
 
 The user opens the quality desk, creates a finding linked to a clip or site, advances it through open, in-progress, and resolved states, and runs a release check. The release engine combines unresolved blockers, featured clip coverage, role coverage, and route validation. A passing study can export a JSON snapshot; a blocked study explains what remains.
+
+### 3a. Trace release history and reopen prior versions
+
+The user opens release history from the quality desk and reviews every check as an immutable version: its sequence, evaluated status, date, readiness score, the version it superseded, unresolved evidence, and whether it is current, stale, or superseded. The user compares any two versions to see impacts on recordings (metadata and placement), listening sites (attributes and clip membership), and quality findings (status, severity, ownership), and can copy an old version into a brand-new review draft. History never changes, and viewing or forking never restores an old release's validity—the publishable head is marked stale until a fresh check passes.
 
 ### 4. Compare listener scenarios
 
@@ -59,7 +64,10 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 - Arrival, texture, voice, and departure signals must all be represented in the route before release.
 - Critical consent or editorial findings block release until resolved.
 - A successful readiness check freezes a revision, deterministic content fingerprint, and snapshot; any release-relevant change marks that release stale and blocks export until another successful check.
-- Each release has a monotonic sequence and records the prior release it supersedes, preserving a local release lineage.
+- Each readiness check (passing or blocked) appends an immutable version to the release history. Versions carry a monotonic sequence, the prior version they supersede, a frozen content projection, and the readiness result; history entries are never rewritten.
+- "Superseded", "stale", and "current" are derived relationships between a frozen version, later versions, and the live workspace—not edits to stored history.
+- A frozen version can be compared with any earlier version to report impacts on recordings, sites/route placement, and quality findings, including adds, removals, field changes, and totals.
+- Any historical version with frozen content can seed a new editable review draft. Forking copies the frozen content into the workspace, regresses the project to review, and marks the live release head stale; it never modifies history or republishes anything.
 - Scenario calculations are derived UI state and never overwrite the saved study unless explicitly applied.
 
 ## Modules and dependency direction
@@ -86,10 +94,11 @@ The user filters the quality desk by a listening site and downloads a CSV checkl
 ## Validation plan
 
 - TypeScript compilation and Vite production build.
-- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, reducer boundaries, site checklists, review transitions, and versioned persistence.
+- Vitest tests for recording validation, route constraints, release rules, deterministic fingerprints, release history lineage and version diffs, reducer boundaries, site checklists, review transitions, and versioned persistence.
 - Playwright browser checks for the five user-facing workflows.
 - Playwright checks that invalid capacity placements are rejected before route state changes.
 - Playwright checks that committed workspace changes propagate to a second browser tab.
+- Playwright checks that two readiness checks produce traceable superseding versions, that their recording/site/finding impact is shown, and that forking an old version seeds a review draft without reviving its release validity.
 - Generic project audit verifies source scale, manifest consistency, and every declared workflow command.
 
 ## Intentionally omitted

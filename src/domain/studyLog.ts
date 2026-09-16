@@ -23,6 +23,8 @@ export function describeAction(action: StudyAction): string {
       return action.release.readiness.ready
         ? "Marked project ready"
         : "Returned project to review";
+    case "release/fork-draft":
+      return `Opened a new review draft from release ${action.releaseId}`;
     case "workspace/reset":
       return "Reset workspace to sample plan";
     case "workspace/sync":

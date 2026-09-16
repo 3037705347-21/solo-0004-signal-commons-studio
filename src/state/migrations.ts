@@ -3,6 +3,7 @@ import type {
   CommandLogEntry,
   QualityIssue,
   Recording,
+  ReleaseContent,
   ReleaseRecord,
   ReleaseResult,
   RoutePreferences,
@@ -237,6 +238,14 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
       ? undefined
       : null;
   if (snapshot === null || (value.status === "ready" && !snapshot)) return null;
+  // Legacy v2 records carry no frozen content; they remain visible in history
+  // but cannot be diffed or forked.
+  let content: ReleaseContent | undefined;
+  if (value.content !== undefined) {
+    const migratedContent = migrateReleaseContent(value.content);
+    if (!migratedContent) return null;
+    content = migratedContent;
+  }
   return {
     id: releaseId,
     sequence,
@@ -251,7 +260,66 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
       : undefined,
     readiness: value.readiness,
     snapshot,
+    content,
   };
+}
+
+function migrateReleaseContent(value: unknown): ReleaseContent | null {
+  if (!isRecord(value)) return null;
+  if (
+    !isNonEmptyString(value.capturedAt) ||
+    !isRecord(value.project) ||
+    !Array.isArray(value.recordings) ||
+    !value.recordings.every(isRecording) ||
+    !Array.isArray(value.sites) ||
+    !value.sites.every(isSite) ||
+    !Array.isArray(value.issues) ||
+    !value.issues.every(isIssue) ||
+    !isPreferences(value.preferences)
+  )
+    return null;
+  return {
+    capturedAt: value.capturedAt,
+    project: {
+      id: isNonEmptyString(value.project.id) ? value.project.id : "legacy",
+      title: isNonEmptyString(value.project.title)
+        ? value.project.title
+        : "Legacy release",
+      fieldArea: isNonEmptyString(value.project.fieldArea)
+        ? value.project.fieldArea
+        : "",
+      listeningQuestion: isNonEmptyString(value.project.listeningQuestion)
+        ? value.project.listeningQuestion
+        : "",
+      publicationDate: isNonEmptyString(value.project.publicationDate)
+        ? value.project.publicationDate
+        : "",
+    },
+    recordings: value.recordings,
+    sites: value.sites,
+    issues: value.issues,
+    preferences: value.preferences,
+  };
+}
+
+function migrateReleaseHistory(value: unknown): ReleaseRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(migrateRelease)
+    .filter((entry): entry is ReleaseRecord => Boolean(entry))
+    .sort((left, right) => left.sequence - right.sequence);
+}
+
+/**
+ * Historical entries keep the status they were evaluated with; only the live
+ * head copy is ever marked stale. A surviving stale head was an approved
+ * release (blocked records carried no snapshot and failed validation).
+ */
+function pristineHistoryStatus(
+  entry: ReleaseRecord,
+): ReleaseRecord["status"] {
+  if (entry.status !== "stale") return entry.status;
+  return entry.snapshot || entry.readiness.ready ? "ready" : "blocked";
 }
 
 function migratedUpdatedAt(state: StudyState): string {
@@ -270,7 +338,8 @@ function migratedUpdatedAt(state: StudyState): string {
 
 export function migrateWorkspace(value: unknown): StudyState | null {
   if (!isRecord(value)) return null;
-  if (value.version !== 1 && value.version !== 2) return null;
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3)
+    return null;
   if (!isProject(value.project)) return null;
   if (!Array.isArray(value.recordings) || !value.recordings.every(isRecording))
     return null;
@@ -280,7 +349,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
 
   if (value.version === 1) {
     const legacy: StudyState = {
-      version: 2,
+      version: 3,
       revision: 0,
       updatedAt: "",
       project: value.project,
@@ -290,6 +359,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
       preferences: value.preferences,
       auditLog: [],
       release: null,
+      releaseHistory: [],
     };
     return {
       ...legacy,
@@ -304,8 +374,41 @@ export function migrateWorkspace(value: unknown): StudyState | null {
         .map(migrateAuditEntry)
         .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
+  const release = migrateRelease(value.release);
+
+  if (value.version === 2) {
+    // Preserve the lone release as the first immutable history version.
+    const releaseHistory = release
+      ? [{ ...release, status: pristineHistoryStatus(release) }]
+      : [];
+    return {
+      version: 3,
+      revision: Number(value.revision),
+      updatedAt: isNonEmptyString(value.updatedAt)
+        ? value.updatedAt
+        : new Date().toISOString(),
+      project: value.project,
+      recordings: value.recordings,
+      sites: value.sites,
+      issues: value.issues,
+      preferences: value.preferences,
+      auditLog,
+      release,
+      releaseHistory,
+      lastSavedAt: isNonEmptyString(value.lastSavedAt)
+        ? value.lastSavedAt
+        : undefined,
+    };
+  }
+
+  const releaseHistory = migrateReleaseHistory(value.releaseHistory).map(
+    (entry) =>
+      entry.status === "stale"
+        ? { ...entry, status: pristineHistoryStatus(entry) }
+        : entry,
+  );
   return {
-    version: 2,
+    version: 3,
     revision: Number(value.revision),
     updatedAt: isNonEmptyString(value.updatedAt)
       ? value.updatedAt
@@ -316,7 +419,11 @@ export function migrateWorkspace(value: unknown): StudyState | null {
     issues: value.issues,
     preferences: value.preferences,
     auditLog,
-    release: migrateRelease(value.release),
+    release,
+    releaseHistory,
+    draftSourceReleaseId: isNonEmptyString(value.draftSourceReleaseId)
+      ? value.draftSourceReleaseId
+      : undefined,
     lastSavedAt: isNonEmptyString(value.lastSavedAt)
       ? value.lastSavedAt
       : undefined,

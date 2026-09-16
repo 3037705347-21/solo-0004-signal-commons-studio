@@ -39,6 +39,7 @@ type StudyActionPayload =
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
   | { type: "project/readiness"; release: ReleaseRecord }
+  | { type: "release/fork-draft"; releaseId: string }
   | { type: "workspace/reset"; state: StudyState }
   | { type: "workspace/sync"; state: StudyState };
 
