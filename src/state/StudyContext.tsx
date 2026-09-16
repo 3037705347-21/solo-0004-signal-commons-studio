@@ -2,24 +2,12 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useReducer,
   useRef,
-  useState,
   type ReactNode,
 } from "react";
-import {
-  recordingFromDraft,
-  validateRecordingDraft,
-} from "../domain/recordingValidation";
 import { createId } from "../domain/ids";
-import { analyzeRoute } from "../domain/routeAnalysis";
-import {
-  createReleaseRecord,
-  evaluateRelease,
-  isReleaseCurrent,
-} from "../domain/releaseRules";
 import type {
   Recording,
   RecordingDraft,
@@ -31,16 +19,29 @@ import type {
   StudyState,
 } from "../domain/models";
 import { workspaceReducer } from "./reducer";
-import { loadStudy, saveStudy, STORAGE_KEY } from "./persistence";
-import { createSeedStudy } from "./seed";
-import type { CommandMeta, StudyAction } from "./actions";
-
-interface CommandResult<T = undefined> {
-  ok: boolean;
-  value?: T;
-  errors?: Record<string, string>;
-  message?: string;
-}
+import { loadStudy } from "./persistence";
+import {
+  createCommandMeta,
+  planAddIssue,
+  planAssignRecording,
+  planReadinessCheck,
+  planRemovePlacement,
+  planRemoveRecording,
+  planReorderRecording,
+  planSnapshotExport,
+  planTransitionIssue,
+  planUpdatePreferences,
+  planUpsertRecording,
+  planWorkspaceReset,
+  withCommandMeta,
+  type CommandPlan,
+  type CommandResult,
+} from "./commands";
+import {
+  useCrossTabWorkspaceSync,
+  usePersistentWorkspace,
+} from "./workspaceSync";
+import type { StudyAction } from "./actions";
 
 interface StudyContextValue {
   state: StudyState;
@@ -70,6 +71,12 @@ interface StudyContextValue {
 
 const StudyContext = createContext<StudyContextValue | null>(null);
 
+/**
+ * React binding for the workspace: owns the reducer state, wires persistence
+ * and cross-tab sync, and exposes the typed commands planned in
+ * `state/commands`. Business rules live in the planners and the domain layer,
+ * not in these callbacks.
+ */
 export function StudyProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(workspaceReducer, undefined, () =>
     loadStudy(),
@@ -77,224 +84,89 @@ export function StudyProvider({ children }: { children: ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const originId = useRef(createId("tab")).current;
-  const [storageHealthy, setStorageHealthy] = useState(true);
+  const storageHealthy = usePersistentWorkspace(state);
+  useCrossTabWorkspaceSync(stateRef, dispatch);
 
-  useEffect(() => {
-    setStorageHealthy(saveStudy(state));
-  }, [state]);
-
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== STORAGE_KEY) return;
-      const incoming = loadStudy();
-      const current = stateRef.current;
-      if (
-        incoming.revision < current.revision ||
-        (incoming.revision === current.revision &&
-          incoming.updatedAt === current.updatedAt)
-      )
-        return;
-      dispatch({ type: "workspace/sync", state: incoming });
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
-
-  const withCommandMeta = useCallback(
-    (action: StudyAction): StudyAction => {
-      const meta: CommandMeta = {
-        commandId: createId("command"),
-        expectedRevision: state.revision,
-        originId,
-        issuedAt: new Date().toISOString(),
-      };
-      return { ...action, meta };
-    },
+  const withMeta = useCallback(
+    (action: StudyAction): StudyAction =>
+      withCommandMeta(action, createCommandMeta(state.revision, originId)),
     [originId, state.revision],
   );
 
-  const upsertRecording = useCallback(
-    (draft: RecordingDraft, existing?: Recording): CommandResult<Recording> => {
-      const validation = validateRecordingDraft(
-        draft,
-        state.recordings,
-        existing?.id,
-      );
-      if (validation.length) {
-        return {
-          ok: false,
-          errors: Object.fromEntries(
-            validation.map((error) => [error.field, error.message]),
-          ),
-          message: "Review the highlighted fields before saving.",
-        };
-      }
-      const recording = recordingFromDraft(draft, existing);
-      dispatch(withCommandMeta({ type: "recording/upsert", recording }));
-      return { ok: true, value: recording };
+  const runPlan = useCallback(
+    <T,>(plan: CommandPlan<T>): CommandResult<T> => {
+      if (!plan.ok) return plan;
+      dispatch(withMeta(plan.action));
+      return plan.value === undefined
+        ? { ok: true }
+        : { ok: true, value: plan.value };
     },
-    [state.recordings, withCommandMeta],
+    [withMeta],
+  );
+
+  const upsertRecording = useCallback(
+    (draft: RecordingDraft, existing?: Recording): CommandResult<Recording> =>
+      runPlan(planUpsertRecording(state, draft, existing)),
+    [state, runPlan],
   );
 
   const removeRecording = useCallback(
-    (recordingId: string): CommandResult => {
-      const recording = state.recordings.find(
-        (candidate) => candidate.id === recordingId,
-      );
-      if (!recording)
-        return { ok: false, message: "The selected clip no longer exists." };
-      dispatch(withCommandMeta({ type: "recording/remove", recordingId }));
-      return { ok: true };
-    },
-    [state.recordings, withCommandMeta],
+    (recordingId: string): CommandResult =>
+      runPlan(planRemoveRecording(state, recordingId)),
+    [state, runPlan],
   );
 
   const assignRecording = useCallback(
-    (recordingId: string, siteId: string): CommandResult => {
-      try {
-        dispatch(
-          withCommandMeta({ type: "placement/assign", recordingId, siteId }),
-        );
-        return { ok: true };
-      } catch (error) {
-        return {
-          ok: false,
-          message:
-            error instanceof Error
-              ? error.message
-              : "Placement could not be updated.",
-        };
-      }
-    },
-    [withCommandMeta],
+    (recordingId: string, siteId: string): CommandResult =>
+      runPlan(planAssignRecording(state, recordingId, siteId)),
+    [state, runPlan],
   );
 
-  const removePlacement = useCallback((recordingId: string) => {
-    dispatch(withCommandMeta({ type: "placement/remove", recordingId }));
-  }, [withCommandMeta]);
+  const removePlacement = useCallback(
+    (recordingId: string) => {
+      runPlan(planRemovePlacement(recordingId));
+    },
+    [runPlan],
+  );
 
   const reorderRecording = useCallback(
-    (siteId: string, recordingId: string, direction: -1 | 1): CommandResult => {
-      try {
-        dispatch(
-          withCommandMeta({
-            type: "placement/reorder",
-            siteId,
-            recordingId,
-            direction,
-          }),
-        );
-        return { ok: true };
-      } catch (error) {
-        return {
-          ok: false,
-          message:
-            error instanceof Error
-              ? error.message
-              : "Clip sequence could not be changed.",
-        };
-      }
-    },
-    [withCommandMeta],
+    (siteId: string, recordingId: string, direction: -1 | 1): CommandResult =>
+      runPlan(planReorderRecording(state, siteId, recordingId, direction)),
+    [state, runPlan],
   );
 
-  const addIssue = useCallback((draft: IssueDraft): CommandResult => {
-    if (!draft.title.trim())
-      return { ok: false, errors: { title: "A finding title is required." } };
-    if (draft.description.trim().length < 16)
-      return {
-        ok: false,
-        errors: { description: "Add at least 16 characters of context." },
-      };
-    if (!draft.owner.trim())
-      return { ok: false, errors: { owner: "Assign an owner." } };
-    const now = new Date().toISOString();
-    dispatch(
-      withCommandMeta({
-        type: "issue/add",
-        issue: {
-          id: createId("issue"),
-          title: draft.title.trim(),
-          description: draft.description.trim(),
-          severity: draft.severity,
-          status: "open",
-          owner: draft.owner.trim(),
-          siteId: draft.siteId || undefined,
-          recordingId: draft.recordingId || undefined,
-          createdAt: now,
-          updatedAt: now,
-        },
-      }),
-    );
-    return { ok: true };
-  }, [withCommandMeta]);
+  const addIssue = useCallback(
+    (draft: IssueDraft): CommandResult => runPlan(planAddIssue(draft)),
+    [runPlan],
+  );
 
   const transitionQualityIssue = useCallback(
-    (issueId: string, status: IssueStatus): CommandResult => {
-      const issue = state.issues.find((candidate) => candidate.id === issueId);
-      if (!issue)
-        return {
-          ok: false,
-          message: "The selected review finding no longer exists.",
-        };
-      try {
-        dispatch(
-          withCommandMeta({ type: "issue/transition", issueId, status }),
-        );
-        return { ok: true };
-      } catch (error) {
-        return {
-          ok: false,
-          message:
-            error instanceof Error
-              ? error.message
-              : "Status could not be changed.",
-        };
-      }
-    },
-    [state.issues, withCommandMeta],
+    (issueId: string, status: IssueStatus): CommandResult =>
+      runPlan(planTransitionIssue(state, issueId, status)),
+    [state, runPlan],
   );
 
-  const updatePreferences = useCallback((preferences: RoutePreferences) => {
-    dispatch(withCommandMeta({ type: "preferences/update", preferences }));
-  }, [withCommandMeta]);
+  const updatePreferences = useCallback(
+    (preferences: RoutePreferences) => {
+      runPlan(planUpdatePreferences(preferences));
+    },
+    [runPlan],
+  );
 
   const checkReadiness = useCallback(() => {
-    const analysis = analyzeRoute(state.recordings, state.sites);
-    const result = evaluateRelease(state, analysis);
-    dispatch(
-      withCommandMeta({
-        type: "project/readiness",
-        release: createReleaseRecord(state, analysis, result),
-      }),
-    );
+    const { action, result } = planReadinessCheck(state);
+    dispatch(withMeta(action));
     return result;
-  }, [state, withCommandMeta]);
+  }, [state, withMeta]);
 
-  const createSnapshot = useCallback((): CommandResult<Snapshot> => {
-    if (!isReleaseCurrent(state, state.release))
-      return {
-        ok: false,
-        message:
-          state.release?.readiness.blockers[0] ??
-          "Run a current readiness check before exporting.",
-      };
-    return {
-      ok: true,
-      value: state.release.snapshot,
-    };
-  }, [state]);
-
-  const resetStudy = useCallback(
-    () =>
-      dispatch(
-        withCommandMeta({
-          type: "workspace/reset",
-          state: createSeedStudy(),
-        }),
-      ),
-    [withCommandMeta],
+  const createSnapshot = useCallback(
+    (): CommandResult<Snapshot> => planSnapshotExport(state),
+    [state],
   );
+
+  const resetStudy = useCallback(() => {
+    runPlan(planWorkspaceReset());
+  }, [runPlan]);
 
   const value = useMemo<StudyContextValue>(
     () => ({
