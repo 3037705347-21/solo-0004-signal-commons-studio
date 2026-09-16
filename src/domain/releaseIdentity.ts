@@ -59,6 +59,14 @@ export function releaseFingerprint(state: StudyState): string {
         isFeatured: recording.isFeatured,
         tags: [...recording.tags].sort(),
         color: recording.color,
+        lifecycle: recording.lifecycle
+          ? {
+              state: recording.lifecycle.state,
+              anchor: recording.lifecycle.anchor,
+              archivedAt: recording.lifecycle.archivedAt ?? null,
+              restoredAt: recording.lifecycle.restoredAt ?? null,
+            }
+          : null,
       })),
     sites: state.sites
       .slice()
@@ -79,6 +87,14 @@ export function releaseFingerprint(state: StudyState): string {
         color: site.color,
         sequence: site.sequence,
         recordingIds: site.recordingIds,
+        lifecycle: site.lifecycle
+          ? {
+              state: site.lifecycle.state,
+              anchor: site.lifecycle.anchor,
+              archivedAt: site.lifecycle.archivedAt ?? null,
+              restoredAt: site.lifecycle.restoredAt ?? null,
+            }
+          : null,
       })),
     issues: state.issues
       .slice()
@@ -93,6 +109,9 @@ export function releaseFingerprint(state: StudyState): string {
         recordingId: issue.recordingId ?? null,
         owner: issue.owner,
         resolvedAt: issue.resolvedAt ?? null,
+        lifecycle: issue.lifecycle
+          ? { state: issue.lifecycle.state, anchor: issue.lifecycle.anchor }
+          : null,
       })),
   };
   return `${FINGERPRINT_PREFIX}-${fnv1a(stableStringify(projection))}`;

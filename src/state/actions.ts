@@ -1,4 +1,5 @@
 import type {
+  ImportBatch,
   Recording,
   IssueStatus,
   ReleaseRecord,
@@ -13,6 +14,8 @@ export interface CommandMeta {
   originId: string;
   issuedAt: string;
 }
+
+export type RetentionTarget = "recording" | "site" | "issue" | "import-batch";
 
 type StudyActionPayload =
   | { type: "recording/upsert"; recording: Recording }
@@ -39,6 +42,26 @@ type StudyActionPayload =
     }
   | { type: "preferences/update"; preferences: RoutePreferences }
   | { type: "project/readiness"; release: ReleaseRecord }
+  | { type: "import-batch/create"; batch: ImportBatch }
+  | {
+      type: "retention/archive";
+      target: RetentionTarget;
+      id: string;
+      at?: Date;
+    }
+  | {
+      type: "retention/restore";
+      target: RetentionTarget;
+      id: string;
+      at?: Date;
+    }
+  | {
+      type: "retention/purge";
+      target: Exclude<RetentionTarget, "import-batch">;
+      id: string;
+      at?: Date;
+    }
+  | { type: "retention/sweep"; at?: Date }
   | { type: "workspace/reset"; state: StudyState }
   | { type: "workspace/sync"; state: StudyState };
 

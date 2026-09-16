@@ -18,6 +18,7 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { formatMinutes, titleCase } from "../../domain/formatters";
 import { analyzeRoute } from "../../domain/routeAnalysis";
 import { clampScenario, projectScenario } from "../../domain/scenario";
+import { liveRecordings, liveSites } from "../../domain/releaseRules";
 import type { RoutePreferences } from "../../domain/models";
 import { useStudy } from "../../state/StudyContext";
 
@@ -26,8 +27,8 @@ export function ScenariosPage() {
   const [draft, setDraft] = useState<RoutePreferences>(state.preferences);
   const [saved, setSaved] = useState(false);
   const analysis = useMemo(
-    () => analyzeRoute(state.recordings, state.sites),
-    [state.recordings, state.sites],
+    () => analyzeRoute(liveRecordings(state), liveSites(state)),
+    [state],
   );
   const projection = useMemo(
     () => projectScenario(state, analysis, draft),

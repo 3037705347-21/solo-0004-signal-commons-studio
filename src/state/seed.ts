@@ -1,6 +1,25 @@
-import type { Recording, Site, StudyState } from "../domain/models";
+import type {
+  ImportBatch,
+  LifecycleMeta,
+  Recording,
+  ReleaseRecord,
+  Site,
+  StudyState,
+} from "../domain/models";
 
 const stamp = "2026-09-08T09:00:00.000Z";
+const FIELD_BATCH_ID = "batch-summer-fieldwork";
+const AUTUMN_BATCH_ID = "batch-autumn-import";
+
+function lifecycle(
+  category: LifecycleMeta["category"],
+  anchor: string,
+  state: LifecycleMeta["state"] = "within-retention",
+  extra: Partial<LifecycleMeta> = {},
+): LifecycleMeta {
+  return { category, anchor, state, ...extra };
+}
+
 const recordings: Recording[] = [
   {
     id: "rec-underpass",
@@ -25,6 +44,8 @@ const recordings: Recording[] = [
     isFeatured: true,
     tags: ["mobility", "morning", "echo"],
     color: "#d7654e",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
   },
@@ -51,6 +72,8 @@ const recordings: Recording[] = [
     isFeatured: true,
     tags: ["market", "voices", "work"],
     color: "#7c6aa6",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
   },
@@ -77,6 +100,8 @@ const recordings: Recording[] = [
     isFeatured: false,
     tags: ["transit", "metal", "rhythm"],
     color: "#2f7c75",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
   },
@@ -103,6 +128,8 @@ const recordings: Recording[] = [
     isFeatured: true,
     tags: ["oral history", "neighborhood", "care"],
     color: "#c7903d",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
   },
@@ -129,6 +156,8 @@ const recordings: Recording[] = [
     isFeatured: true,
     tags: ["water", "weather", "youth"],
     color: "#3f6fa8",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
   },
@@ -155,6 +184,8 @@ const recordings: Recording[] = [
     isFeatured: false,
     tags: ["craft", "hands", "rhythm"],
     color: "#8c9474",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
   },
@@ -181,6 +212,8 @@ const recordings: Recording[] = [
     isFeatured: false,
     tags: ["transit", "evening", "routine"],
     color: "#a55f72",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
   },
@@ -207,8 +240,73 @@ const recordings: Recording[] = [
     isFeatured: false,
     tags: ["park", "wind", "play"],
     color: "#597b8e",
+    importBatchId: FIELD_BATCH_ID,
+    lifecycle: lifecycle("active-recording", stamp),
     createdAt: stamp,
     updatedAt: stamp,
+  },
+  // Expired, unplaced material left over from an unfinished autumn import.
+  {
+    id: "rec-belltower",
+    catalogId: "SC-25-090",
+    title: "Old belltower ambience",
+    source: "Harbor history walk",
+    recordedOn: "2025-11-02",
+    format: "WAV",
+    location: "Harbor belltower",
+    summary:
+      "Distant bells and gulls recorded during a scouting walk that never became a route.",
+    audioSpec: {
+      sampleRate: 48000,
+      channels: 2,
+      bitDepth: 24,
+      durationSeconds: 172,
+    },
+    signalRole: "texture",
+    sensitivity: "public",
+    transcriptStatus: "missing",
+    consentStatus: "pending",
+    isFeatured: false,
+    tags: ["archive-candidate", "harbor"],
+    color: "#8a8f98",
+    importBatchId: AUTUMN_BATCH_ID,
+    lifecycle: lifecycle("active-recording", "2025-11-10T09:00:00.000Z", "expired"),
+    createdAt: "2025-11-10T09:00:00.000Z",
+    updatedAt: "2025-11-10T09:00:00.000Z",
+  },
+  // An archived clip, parked out of the route but restorable.
+  {
+    id: "rec-ferry-horn",
+    catalogId: "SC-25-077",
+    title: "Ferry horn practice take",
+    source: "Harbor history walk",
+    recordedOn: "2025-10-21",
+    format: "WAV",
+    location: "Pier 4",
+    summary:
+      "A rehearsal take with handling noise; kept while the harbor route was still being considered.",
+    audioSpec: {
+      sampleRate: 48000,
+      channels: 2,
+      bitDepth: 24,
+      durationSeconds: 143,
+    },
+    signalRole: "departure",
+    sensitivity: "public",
+    transcriptStatus: "draft",
+    consentStatus: "confirmed",
+    isFeatured: false,
+    tags: ["harbor", "take"],
+    color: "#9aa3ad",
+    importBatchId: AUTUMN_BATCH_ID,
+    lifecycle: lifecycle(
+      "active-recording",
+      "2025-10-22T09:00:00.000Z",
+      "archived",
+      { archivedAt: "2026-06-02T08:00:00.000Z" },
+    ),
+    createdAt: "2025-10-22T09:00:00.000Z",
+    updatedAt: "2025-11-05T09:00:00.000Z",
   },
 ];
 const sites: Site[] = [
@@ -225,6 +323,7 @@ const sites: Site[] = [
     color: "#d7654e",
     sequence: 0,
     recordingIds: ["rec-underpass"],
+    lifecycle: lifecycle("route-site", stamp),
   },
   {
     id: "site-rhythm",
@@ -239,6 +338,7 @@ const sites: Site[] = [
     color: "#7c6aa6",
     sequence: 1,
     recordingIds: ["rec-market", "rec-tram"],
+    lifecycle: lifecycle("route-site", stamp),
   },
   {
     id: "site-voices",
@@ -253,6 +353,7 @@ const sites: Site[] = [
     color: "#2f7c75",
     sequence: 2,
     recordingIds: ["rec-courtyard"],
+    lifecycle: lifecycle("route-site", stamp),
   },
   {
     id: "site-return",
@@ -266,11 +367,146 @@ const sites: Site[] = [
     color: "#597b8e",
     sequence: 3,
     recordingIds: ["rec-bus"],
+    lifecycle: lifecycle("route-site", stamp),
+  },
+  // A site no longer in use. It still cites a clip that has since been
+  // physically purged; the citation resolves through a tombstone/snapshot.
+  {
+    id: "site-old-harbor",
+    name: "Harbor loop (paused)",
+    shortLabel: "Old harbor",
+    prompt: "How did the working harbor frame the city's arrival?",
+    maxDurationSeconds: 360,
+    maxClips: 2,
+    quietSpace: false,
+    hasSeating: true,
+    color: "#9aa3ad",
+    sequence: 4,
+    recordingIds: ["rec-rain-basement"],
+    lifecycle: lifecycle(
+      "route-site",
+      "2025-10-22T09:00:00.000Z",
+      "archived",
+      { archivedAt: "2026-06-02T08:00:00.000Z" },
+    ),
   },
 ];
+
+const importBatches: ImportBatch[] = [
+  {
+    id: FIELD_BATCH_ID,
+    label: "Summer neighborhood fieldwork",
+    source: "Field team SD cards",
+    importedAt: "2026-06-14T08:00:00.000Z",
+    recordingIds: [
+      "rec-underpass",
+      "rec-market",
+      "rec-tram",
+      "rec-courtyard",
+      "rec-drain",
+      "rec-workshop",
+      "rec-bus",
+      "rec-park",
+    ],
+  },
+  {
+    // An unfinished import: one clip expired, one was cleaned, and the batch
+    // manifest itself is past its 90-day window.
+    id: AUTUMN_BATCH_ID,
+    label: "Autumn harbor intake (incomplete)",
+    source: "Harbor history walk recorder",
+    importedAt: "2025-10-22T08:00:00.000Z",
+    recordingIds: ["rec-ferry-horn", "rec-belltower", "rec-rain-basement"],
+    note: "Import stalled during consent review; never attached to a route.",
+  },
+];
+
+const purgedRainBasement: Recording = {
+  id: "rec-rain-basement",
+  catalogId: "SC-25-061",
+  title: "Rain on basement grating",
+  source: "Harbor history walk",
+  recordedOn: "2025-10-18",
+  format: "WAV",
+  location: "Pier 4 basement access",
+  summary: "Rain striking a metal basement grating beside the old ferry pier.",
+  audioSpec: {
+    sampleRate: 48000,
+    channels: 2,
+    bitDepth: 24,
+    durationSeconds: 96,
+  },
+  signalRole: "texture",
+  sensitivity: "public",
+  transcriptStatus: "verified",
+  consentStatus: "confirmed",
+  isFeatured: false,
+  tags: ["harbor", "rain"],
+  color: "#9aa3ad",
+  importBatchId: AUTUMN_BATCH_ID,
+  lifecycle: lifecycle(
+    "active-recording",
+    "2025-10-22T09:00:00.000Z",
+    "archived",
+    { archivedAt: "2026-06-02T08:00:00.000Z" },
+  ),
+  createdAt: "2025-10-22T09:00:00.000Z",
+  updatedAt: "2025-11-02T09:00:00.000Z",
+};
+
+// A published version from a previous study year. It freezes a copy of the
+// since-purged clip inside its snapshot, so the old release and its citations
+// remain fully resolvable even though the live library no longer holds it.
+const historicalRelease: ReleaseRecord = {
+  id: "release-2025-harbor",
+  sequence: 1,
+  createdAt: "2025-12-15T10:00:00.000Z",
+  status: "ready",
+  revision: 42,
+  fingerprint: "sc-r1-historical",
+  readiness: {
+    ready: true,
+    score: 94,
+    blockers: [],
+    cautions: ["1 non-critical finding remains open."],
+    checkedAt: "2025-12-15T10:00:00.000Z",
+  },
+  snapshot: {
+    schemaVersion: 2,
+    generatedAt: "2025-12-15T10:00:00.000Z",
+    releaseId: "release-2025-harbor",
+    releaseSequence: 1,
+    revision: 42,
+    fingerprint: "sc-r1-historical",
+    project: {
+      id: "signal-commons-2025-harbor",
+      title: "Harbor Listening Loop 2025",
+      fieldArea: "Old harbor district",
+      listeningQuestion: "What did the harbor carry into the city?",
+      publicationDate: "2025-12-20",
+      stage: "ready",
+      lastReadinessCheck: "2025-12-15T10:00:00.000Z",
+    },
+    preferences: { pace: "steady", accessPriority: 60, listenerCount: 5 },
+    summary: {
+      recordingCount: 1,
+      siteCount: 1,
+      routeSeconds: 96,
+      readinessScore: 94,
+    },
+    sites: [
+      {
+        ...sites[4],
+        recordings: [purgedRainBasement],
+      },
+    ],
+    unresolvedIssues: [],
+  },
+};
+
 export function createSeedStudy(): StudyState {
   return structuredClone({
-    version: 2,
+    version: 3,
     revision: 0,
     updatedAt: stamp,
     project: {
@@ -295,6 +531,7 @@ export function createSeedStudy(): StudyState {
         recordingId: "rec-courtyard",
         siteId: "site-voices",
         owner: "Amina Patel",
+        lifecycle: lifecycle("quality-finding", stamp),
         createdAt: stamp,
         updatedAt: stamp,
       },
@@ -307,12 +544,47 @@ export function createSeedStudy(): StudyState {
         status: "in-progress",
         recordingId: "rec-drain",
         owner: "Lin Qiao",
+        lifecycle: lifecycle("quality-finding", stamp),
         createdAt: stamp,
         updatedAt: stamp,
+      },
+      // Resolved long ago and kept past its 120-day window: a purge candidate.
+      {
+        id: "issue-old-harbor-note",
+        title: "Harbor route seating confirmation",
+        description:
+          "Confirmed the old pier bench was usable for seated listening during the 2025 walk.",
+        severity: "note",
+        status: "resolved",
+        siteId: "site-old-harbor",
+        recordingId: "rec-rain-basement",
+        owner: "Milo Chen",
+        resolvedAt: "2025-12-10T10:00:00.000Z",
+        lifecycle: lifecycle(
+          "quality-finding",
+          "2025-12-10T10:00:00.000Z",
+          "expired",
+        ),
+        createdAt: "2025-11-20T10:00:00.000Z",
+        updatedAt: "2025-12-10T10:00:00.000Z",
+      },
+    ],
+    importBatches,
+    tombstones: [
+      {
+        id: "rec-rain-basement",
+        kind: "recording",
+        label: "Rain on basement grating",
+        category: "active-recording",
+        purgedAt: "2026-07-01T08:00:00.000Z",
+        reason: "expired-purge",
+        referencedByReleaseIds: ["release-2025-harbor"],
+        importBatchId: AUTUMN_BATCH_ID,
       },
     ],
     preferences: { pace: "steady", accessPriority: 70, listenerCount: 6 },
     auditLog: [],
     release: null,
+    releaseHistory: [historicalRelease],
   });
 }

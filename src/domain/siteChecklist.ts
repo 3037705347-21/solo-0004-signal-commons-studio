@@ -1,6 +1,7 @@
 import { sortSites } from "./filters";
 import { formatMinutes } from "./formatters";
 import type { IssueSeverity, IssueStatus, StudyState, Site } from "./models";
+import { resolveRecording } from "./retentionRegistry";
 
 export interface ChecklistFinding {
   severity: IssueSeverity;
@@ -16,6 +17,7 @@ export interface SiteChecklistEntry {
   catalogId: string;
   title: string;
   durationSeconds: number;
+  availability: "live" | "archived" | "purged";
   unresolvedFindings: ChecklistFinding[];
 }
 
@@ -44,9 +46,6 @@ export function buildSiteChecklist(
   );
   if (!site) return null;
 
-  const recordingById = new Map(
-    state.recordings.map((recording) => [recording.id, recording]),
-  );
   const unresolved = state.issues.filter(
     (issue) => issue.status !== "resolved",
   );
@@ -73,20 +72,29 @@ export function buildSiteChecklist(
   const linkedIssueIds = new Set<string>();
   const entries: SiteChecklistEntry[] = site.recordingIds
     .map((id, index) => {
-      const recording = recordingById.get(id);
-      if (!recording) return null;
-      const recordingFindings = unresolved
-        .filter((issue) => issue.recordingId === recording.id)
-        .map((issue) => {
-          linkedIssueIds.add(issue.id);
-          return toFinding("recording")(issue);
-        });
+      // Resolve through the registry so cleaned clips keep their sequence
+      // position instead of silently dropping out of the field checklist.
+      const resolved = resolveRecording(state, id);
+      if (!resolved) return null;
+      const recording = resolved.recording;
+      const recordingFindings = recording
+        ? unresolved
+            .filter((issue) => issue.recordingId === recording.id)
+            .map((issue) => {
+              linkedIssueIds.add(issue.id);
+              return toFinding("recording")(issue);
+            })
+        : [];
       return {
         sequence: index + 1,
-        recordingId: recording.id,
-        catalogId: recording.catalogId,
-        title: recording.title,
-        durationSeconds: recording.audioSpec.durationSeconds,
+        recordingId: id,
+        catalogId: recording?.catalogId ?? "—",
+        title:
+          resolved.availability === "purged"
+            ? `${resolved.stub?.label ?? "Cleaned clip"} (cleaned)`
+            : (recording?.title ?? resolved.stub?.label ?? "Archived clip"),
+        durationSeconds: recording?.audioSpec.durationSeconds ?? 0,
+        availability: resolved.availability,
         unresolvedFindings: [...recordingFindings, ...siteFindings],
       };
     })
@@ -145,7 +153,7 @@ export function serializeSiteChecklistCsv(checklist: SiteChecklist): string {
     `Listening prompt,${csvCell(checklist.prompt)}`,
     `Generated,${csvCell(checklist.generatedAt)}`,
     "",
-    ["Sequence", "Catalog ID", "Clip", "duration (sec)", "Unresolved findings"]
+    ["Sequence", "Catalog ID", "Clip", "duration (sec)", "Availability", "Unresolved findings"]
       .map(csvCell)
       .join(","),
   ];
@@ -158,6 +166,7 @@ export function serializeSiteChecklistCsv(checklist: SiteChecklist): string {
         entry.catalogId,
         entry.title,
         entry.durationSeconds,
+        entry.availability,
         findings,
       ]
         .map(csvCell)

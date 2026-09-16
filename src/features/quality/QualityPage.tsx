@@ -37,6 +37,8 @@ import type {
 import {
   evaluateRelease,
   isReleaseCurrent,
+  liveRecordings,
+  liveSites,
 } from "../../domain/releaseRules";
 import {
   buildSiteChecklist,
@@ -70,7 +72,10 @@ export function QualityPage() {
   const [showModal, setShowModal] = useState(false);
   const [readiness, setReadiness] = useState(() =>
     state.release?.readiness ??
-      evaluateRelease(state, analyzeRoute(state.recordings, state.sites)),
+      evaluateRelease(
+        state,
+        analyzeRoute(liveRecordings(state), liveSites(state)),
+      ),
   );
   const [toast, setToast] = useState<string | null>(null);
   const releaseCurrent = isReleaseCurrent(state, state.release);
@@ -89,13 +94,16 @@ export function QualityPage() {
     window.setTimeout(() => setToast(null), 2600);
   };
 
-  const sites = useMemo(() => sortSites(state.sites), [state.sites]);
+  const sites = useMemo(() => sortSites(liveSites(state)), [state]);
   const selectedSite = sites.find((site) => site.id === reviewUi.siteId);
   const filter = reviewUi.status;
 
   const scopedIssues = useMemo<QualityIssue[]>(() => {
-    if (!selectedSite) return state.issues;
-    return state.issues.filter(
+    const liveIssues = state.issues.filter(
+      (issue) => issue.lifecycle?.state !== "archived",
+    );
+    if (!selectedSite) return liveIssues;
+    return liveIssues.filter(
       (issue) =>
         issue.siteId === selectedSite.id ||
         (Boolean(issue.recordingId) &&

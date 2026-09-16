@@ -19,8 +19,11 @@ import {
   createReleaseRecord,
   evaluateRelease,
   isReleaseCurrent,
+  liveRecordings,
+  liveSites,
 } from "../domain/releaseRules";
 import type {
+  ImportBatch,
   Recording,
   RecordingDraft,
   IssueDraft,
@@ -30,16 +33,40 @@ import type {
   Snapshot,
   StudyState,
 } from "../domain/models";
+import {
+  canArchiveIssue,
+  canArchiveRecording,
+  canArchiveSite,
+  canPurgeIssue,
+  canPurgeRecording,
+  canPurgeSite,
+  runRetentionSweep as runRetentionSweepPure,
+} from "../domain/retentionLifecycle";
 import { workspaceReducer } from "./reducer";
 import { loadStudy, saveStudy, STORAGE_KEY } from "./persistence";
 import { createSeedStudy } from "./seed";
-import type { CommandMeta, StudyAction } from "./actions";
+import type { CommandMeta, RetentionTarget, StudyAction } from "./actions";
 
 interface CommandResult<T = undefined> {
   ok: boolean;
   value?: T;
   errors?: Record<string, string>;
   message?: string;
+}
+
+interface RetentionCommandResult {
+  ok: boolean;
+  message?: string;
+  changed?: boolean;
+  counts?: {
+    archivedRecordings: number;
+    archivedSites: number;
+    archivedIssues: number;
+    purgedRecordings: number;
+    purgedSites: number;
+    purgedIssues: number;
+    skipped: string[];
+  };
 }
 
 interface StudyContextValue {
@@ -65,6 +92,23 @@ interface StudyContextValue {
   updatePreferences: (preferences: RoutePreferences) => void;
   checkReadiness: () => ReleaseResult;
   createSnapshot: () => CommandResult<Snapshot>;
+  archiveRecord: (target: RetentionTarget, id: string) => CommandResult;
+  restoreRecord: (target: RetentionTarget, id: string) => CommandResult;
+  purgeRecord: (
+    target: Exclude<RetentionTarget, "import-batch">,
+    id: string,
+  ) => CommandResult;
+  explainArchiveBlock: (target: RetentionTarget, id: string) => string | null;
+  explainPurgeBlock: (
+    target: Exclude<RetentionTarget, "import-batch">,
+    id: string,
+  ) => string | null;
+  registerImportBatch: (input: {
+    label: string;
+    source: string;
+    note?: string;
+  }) => CommandResult<ImportBatch>;
+  runRetentionSweep: () => RetentionCommandResult;
   resetStudy: () => void;
 }
 
@@ -260,16 +304,19 @@ export function StudyProvider({ children }: { children: ReactNode }) {
   }, [withCommandMeta]);
 
   const checkReadiness = useCallback(() => {
-    const analysis = analyzeRoute(state.recordings, state.sites);
-    const result = evaluateRelease(state, analysis);
+    const analysis = analyzeRoute(
+      liveRecordings(stateRef.current),
+      liveSites(stateRef.current),
+    );
+    const result = evaluateRelease(stateRef.current, analysis);
     dispatch(
       withCommandMeta({
         type: "project/readiness",
-        release: createReleaseRecord(state, analysis, result),
+        release: createReleaseRecord(stateRef.current, analysis, result),
       }),
     );
     return result;
-  }, [state, withCommandMeta]);
+  }, [withCommandMeta]);
 
   const createSnapshot = useCallback((): CommandResult<Snapshot> => {
     if (!isReleaseCurrent(state, state.release))
@@ -296,6 +343,114 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     [withCommandMeta],
   );
 
+  const explainArchiveBlock = useCallback(
+    (target: RetentionTarget, id: string): string | null => {
+      const current = stateRef.current;
+      if (target === "recording") return canArchiveRecording(current, id);
+      if (target === "site") return canArchiveSite(current, id);
+      if (target === "issue") return canArchiveIssue(current, id);
+      const batch = current.importBatches.find((item) => item.id === id);
+      if (!batch) return "The selected import batch no longer exists.";
+      return batch.archivedAt ? "This import batch is already archived." : null;
+    },
+    [],
+  );
+
+  const explainPurgeBlock = useCallback(
+    (target: Exclude<RetentionTarget, "import-batch">, id: string) => {
+      const current = stateRef.current;
+      if (target === "recording") return canPurgeRecording(current, id);
+      if (target === "site") return canPurgeSite(current, id);
+      return canPurgeIssue(current, id);
+    },
+    [],
+  );
+
+  const archiveRecord = useCallback(
+    (target: RetentionTarget, id: string): CommandResult => {
+      const block = explainArchiveBlock(target, id);
+      if (block) return { ok: false, message: block };
+      dispatch(withCommandMeta({ type: "retention/archive", target, id }));
+      return { ok: true };
+    },
+    [explainArchiveBlock, withCommandMeta],
+  );
+
+  const restoreRecord = useCallback(
+    (target: RetentionTarget, id: string): CommandResult => {
+      dispatch(withCommandMeta({ type: "retention/restore", target, id }));
+      return { ok: true, message: "Restored. A fresh readiness check is required before release." };
+    },
+    [withCommandMeta],
+  );
+
+  const purgeRecord = useCallback(
+    (target: Exclude<RetentionTarget, "import-batch">, id: string): CommandResult => {
+      const block = explainPurgeBlock(target, id);
+      if (block) return { ok: false, message: block };
+      dispatch(withCommandMeta({ type: "retention/purge", target, id }));
+      return { ok: true, message: "Record cleaned. Existing references remain resolvable." };
+    },
+    [explainPurgeBlock, withCommandMeta],
+  );
+
+  const registerImportBatch = useCallback(
+    (input: {
+      label: string;
+      source: string;
+      note?: string;
+    }): CommandResult<ImportBatch> => {
+      const label = input.label.trim();
+      const source = input.source.trim();
+      if (!label)
+        return { ok: false, errors: { label: "A batch label is required." } };
+      if (!source)
+        return { ok: false, errors: { source: "A batch source is required." } };
+      const batch: ImportBatch = {
+        id: createId("batch"),
+        label,
+        source,
+        importedAt: new Date().toISOString(),
+        recordingIds: [],
+        note: input.note?.trim() || undefined,
+      };
+      dispatch(withCommandMeta({ type: "import-batch/create", batch }));
+      return { ok: true, value: batch };
+    },
+    [withCommandMeta],
+  );
+
+  const runRetentionSweep = useCallback((): RetentionCommandResult => {
+    // Run the pure policy once to report counts immediately, then commit the
+    // same result through the revision-guarded command path.
+    const current = stateRef.current;
+    const preview = runRetentionSweepPure(current);
+    dispatch(withCommandMeta({ type: "retention/sweep" }));
+    const total =
+      preview.archivedRecordings +
+      preview.archivedSites +
+      preview.archivedIssues +
+      preview.purgedRecordings +
+      preview.purgedSites +
+      preview.purgedIssues;
+    return {
+      ok: true,
+      changed: total > 0,
+      counts: {
+        archivedRecordings: preview.archivedRecordings,
+        archivedSites: preview.archivedSites,
+        archivedIssues: preview.archivedIssues,
+        purgedRecordings: preview.purgedRecordings,
+        purgedSites: preview.purgedSites,
+        purgedIssues: preview.purgedIssues,
+        skipped: preview.skipped,
+      },
+      message: total
+        ? `Retention sweep archived ${preview.archivedRecordings + preview.archivedSites + preview.archivedIssues} and cleaned ${preview.purgedRecordings + preview.purgedSites + preview.purgedIssues} records.`
+        : "Nothing is due for archival in this sweep.",
+    };
+  }, [withCommandMeta]);
+
   const value = useMemo<StudyContextValue>(
     () => ({
       state,
@@ -310,6 +465,13 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       checkReadiness,
       createSnapshot,
+      archiveRecord,
+      restoreRecord,
+      purgeRecord,
+      explainArchiveBlock,
+      explainPurgeBlock,
+      registerImportBatch,
+      runRetentionSweep,
       resetStudy,
     }),
     [
@@ -325,6 +487,13 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       updatePreferences,
       checkReadiness,
       createSnapshot,
+      archiveRecord,
+      restoreRecord,
+      purgeRecord,
+      explainArchiveBlock,
+      explainPurgeBlock,
+      registerImportBatch,
+      runRetentionSweep,
       resetStudy,
     ],
   );

@@ -1,16 +1,20 @@
 import type {
   AudioSpec,
   CommandLogEntry,
+  ImportBatch,
+  LifecycleMeta,
   QualityIssue,
   Recording,
   ReleaseRecord,
   ReleaseResult,
+  RetentionCategory,
   RoutePreferences,
   Site,
   Snapshot,
   StudyState,
 } from "../domain/models";
 import { releaseFingerprint } from "../domain/releaseIdentity";
+import { evaluateRetentionStatus } from "../domain/retention";
 
 const PROJECT_STAGES = new Set(["draft", "review", "ready"]);
 const SIGNAL_ROLES = new Set(["arrival", "texture", "voice", "departure"]);
@@ -19,6 +23,57 @@ const TRANSCRIPT_STATUSES = new Set(["missing", "draft", "verified"]);
 const CONSENT_STATUSES = new Set(["pending", "confirmed", "restricted"]);
 const ISSUE_SEVERITIES = new Set(["note", "warning", "critical"]);
 const ISSUE_STATUSES = new Set(["open", "in-progress", "resolved"]);
+const RETENTION_STATES = new Set([
+  "within-retention",
+  "expired",
+  "archived",
+]);
+const RETENTION_CATEGORIES = new Set([
+  "active-recording",
+  "import-batch",
+  "route-site",
+  "quality-finding",
+  "published-release",
+]);
+
+function isLifecycle(value: unknown): value is LifecycleMeta {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.category === "string" &&
+    RETENTION_CATEGORIES.has(value.category) &&
+    typeof value.state === "string" &&
+    RETENTION_STATES.has(value.state) &&
+    isNonEmptyString(value.anchor)
+  );
+}
+
+function isImportBatch(value: unknown): value is ImportBatch {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.label) &&
+    typeof value.source === "string" &&
+    isNonEmptyString(value.importedAt) &&
+    Array.isArray(value.recordingIds) &&
+    value.recordingIds.every((id) => typeof id === "string")
+  );
+}
+
+function isTombstone(value: unknown): value is StudyState["tombstones"][number] {
+  if (!isRecord(value)) return false;
+  return (
+    isNonEmptyString(value.id) &&
+    (value.kind === "recording" ||
+      value.kind === "site" ||
+      value.kind === "issue") &&
+    typeof value.label === "string" &&
+    typeof value.category === "string" &&
+    RETENTION_CATEGORIES.has(value.category) &&
+    isNonEmptyString(value.purgedAt) &&
+    (value.reason === "expired-purge" || value.reason === "manual-purge") &&
+    Array.isArray(value.referencedByReleaseIds)
+  );
+}
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -254,7 +309,10 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
   };
 }
 
-function migratedUpdatedAt(state: StudyState): string {
+/** A structurally v2/v3 state prior to retention fields being normalized. */
+type PreV3State = Omit<StudyState, "version"> & { version: 2 | 3 };
+
+function migratedUpdatedAt(state: Pick<StudyState, "project" | "recordings" | "issues">): string {
   const timestamps = [
     state.project.lastReadinessCheck,
     ...state.recordings.map((recording) => recording.updatedAt),
@@ -268,9 +326,88 @@ function migratedUpdatedAt(state: StudyState): string {
     : "1970-01-01T00:00:00.000Z";
 }
 
+const LEGACY_BATCH_ID = "batch-legacy-import";
+
+/** A single back-filled batch accounts for clips that pre-date retention. */
+function legacyImportBatch(
+  recordings: Recording[],
+  anchor: string,
+): ImportBatch {
+  return {
+    id: LEGACY_BATCH_ID,
+    label: "Legacy library import",
+    source: "Pre-policy workspace data",
+    importedAt: anchor,
+    recordingIds: recordings.map((recording) => recording.id),
+    note: "Clips brought into the workspace before the retention policy existed.",
+  };
+}
+
+function lifecycleFor(
+  category: RetentionCategory,
+  anchor: string,
+  explicit: LifecycleMeta | undefined,
+  now: Date,
+): LifecycleMeta {
+  if (explicit) return explicit;
+  const derived = evaluateRetentionStatus(category, anchor, undefined, now);
+  return { category, anchor, state: derived.state };
+}
+
+/** Bring a v2-shaped workspace up to v3: lifecycle metadata and import batches. */
+function upgradeToV3(input: PreV3State, now = new Date()): StudyState {
+  const state = input as StudyState;
+  const anchor = migratedUpdatedAt(state);
+  const recordings = state.recordings.map((recording) => ({
+    ...recording,
+    importBatchId: recording.importBatchId ?? LEGACY_BATCH_ID,
+    lifecycle: lifecycleFor(
+      "active-recording",
+      recording.updatedAt,
+      isLifecycle(recording.lifecycle) ? recording.lifecycle : undefined,
+      now,
+    ),
+  }));
+  const sites = state.sites.map((site) => ({
+    ...site,
+    lifecycle: lifecycleFor(
+      "route-site",
+      anchor,
+      isLifecycle(site.lifecycle) ? site.lifecycle : undefined,
+      now,
+    ),
+  }));
+  const issues = state.issues.map((issue) => ({
+    ...issue,
+    lifecycle: lifecycleFor(
+      "quality-finding",
+      issue.updatedAt,
+      isLifecycle(issue.lifecycle) ? issue.lifecycle : undefined,
+      now,
+    ),
+  }));
+  const importBatches =
+    state.importBatches && state.importBatches.length
+      ? state.importBatches
+      : recordings.length
+        ? [legacyImportBatch(recordings, anchor)]
+        : [];
+  return {
+    ...state,
+    version: 3,
+    recordings,
+    sites,
+    issues,
+    importBatches,
+    tombstones: state.tombstones ?? [],
+    releaseHistory: state.releaseHistory ?? [],
+  };
+}
+
 export function migrateWorkspace(value: unknown): StudyState | null {
   if (!isRecord(value)) return null;
-  if (value.version !== 1 && value.version !== 2) return null;
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3)
+    return null;
   if (!isProject(value.project)) return null;
   if (!Array.isArray(value.recordings) || !value.recordings.every(isRecording))
     return null;
@@ -279,7 +416,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
   if (!isPreferences(value.preferences)) return null;
 
   if (value.version === 1) {
-    const legacy: StudyState = {
+    const legacy: PreV3State = {
       version: 2,
       revision: 0,
       updatedAt: "",
@@ -287,14 +424,17 @@ export function migrateWorkspace(value: unknown): StudyState | null {
       recordings: value.recordings,
       sites: value.sites,
       issues: value.issues,
+      importBatches: [],
+      tombstones: [],
       preferences: value.preferences,
       auditLog: [],
       release: null,
+      releaseHistory: [],
     };
-    return {
+    return upgradeToV3({
       ...legacy,
-      updatedAt: migratedUpdatedAt(legacy),
-    };
+      updatedAt: migratedUpdatedAt(legacy as StudyState),
+    });
   }
 
   if (!Number.isInteger(value.revision) || Number(value.revision) < 0)
@@ -304,7 +444,7 @@ export function migrateWorkspace(value: unknown): StudyState | null {
         .map(migrateAuditEntry)
         .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
-  return {
+  const v2: PreV3State = {
     version: 2,
     revision: Number(value.revision),
     updatedAt: isNonEmptyString(value.updatedAt)
@@ -314,25 +454,61 @@ export function migrateWorkspace(value: unknown): StudyState | null {
     recordings: value.recordings,
     sites: value.sites,
     issues: value.issues,
+    importBatches: Array.isArray(value.importBatches)
+      ? value.importBatches.filter(isImportBatch)
+      : [],
+    tombstones: Array.isArray(value.tombstones)
+      ? value.tombstones.filter(isTombstone)
+      : [],
     preferences: value.preferences,
     auditLog,
     release: migrateRelease(value.release),
+    releaseHistory: Array.isArray(value.releaseHistory)
+      ? (value.releaseHistory
+          .map((entry) => migrateRelease(entry))
+          .filter((entry): entry is ReleaseRecord => Boolean(entry)))
+      : [],
     lastSavedAt: isNonEmptyString(value.lastSavedAt)
       ? value.lastSavedAt
       : undefined,
   };
+  return upgradeToV3(v2);
 }
 
 export function validateReferences(state: StudyState): StudyState {
   const recordingIds = new Set(
     state.recordings.map((recording) => recording.id),
   );
+  const tombstoneIds = new Set(
+    state.tombstones
+      .filter((tombstone) => tombstone.kind === "recording")
+      .map((tombstone) => tombstone.id),
+  );
   const siteIds = new Set(state.sites.map((site) => site.id));
+  const tombstoneSiteIds = new Set(
+    state.tombstones
+      .filter((tombstone) => tombstone.kind === "site")
+      .map((tombstone) => tombstone.id),
+  );
+  // Frozen snapshots keep references to cleaned clips resolvable as well.
+  const releases = [
+    ...(state.release ? [state.release] : []),
+    ...(state.releaseHistory ?? []),
+  ];
+  for (const release of releases) {
+    for (const site of release.snapshot?.sites ?? []) {
+      for (const recording of site.recordings) tombstoneIds.add(recording.id);
+      tombstoneSiteIds.add(site.id);
+    }
+  }
   const placedRecordingIds = new Set<string>();
   const sites = state.sites.map((site) => ({
     ...site,
     recordingIds: site.recordingIds.filter((id) => {
-      if (!recordingIds.has(id) || placedRecordingIds.has(id)) return false;
+      if (placedRecordingIds.has(id)) return false;
+      // Live recordings and cleaned-but-still-resolvable references survive;
+      // only truly unknown, dangling ids are repaired away at startup.
+      if (!recordingIds.has(id) && !tombstoneIds.has(id)) return false;
       placedRecordingIds.add(id);
       return true;
     }),
@@ -340,9 +516,12 @@ export function validateReferences(state: StudyState): StudyState {
   const issues = state.issues.map((issue) => ({
     ...issue,
     siteId:
-      issue.siteId && siteIds.has(issue.siteId) ? issue.siteId : undefined,
+      issue.siteId && (siteIds.has(issue.siteId) || tombstoneSiteIds.has(issue.siteId))
+        ? issue.siteId
+        : undefined,
     recordingId:
-      issue.recordingId && recordingIds.has(issue.recordingId)
+      issue.recordingId &&
+      (recordingIds.has(issue.recordingId) || tombstoneIds.has(issue.recordingId))
         ? issue.recordingId
         : undefined,
   }));

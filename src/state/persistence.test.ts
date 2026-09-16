@@ -11,7 +11,7 @@ import { createSeedStudy } from "./seed";
 describe("workspace persistence", () => {
   it("falls back to seed state for malformed storage", () => {
     const storage = { getItem: () => "{bad json" } as unknown as Storage;
-    expect(loadStudy(storage).version).toBe(2);
+    expect(loadStudy(storage).version).toBe(3);
   });
   it("round trips a workspace through storage", () => {
     const values = new Map<string, string>();
@@ -32,7 +32,7 @@ describe("workspace persistence", () => {
     expect(values.has(STORAGE_KEY)).toBe(false);
   });
 
-  it("migrates a version 1 workspace into the version 2 state contract", () => {
+  it("migrates a version 1 workspace into the current state contract", () => {
     const legacy = createSeedStudy();
     const raw = JSON.stringify({
       ...legacy,
@@ -41,13 +41,24 @@ describe("workspace persistence", () => {
       updatedAt: undefined,
       auditLog: undefined,
       release: undefined,
+      importBatches: undefined,
+      tombstones: undefined,
+      releaseHistory: undefined,
     });
     const storage = { getItem: () => raw } as unknown as Storage;
     const migrated = loadStudy(storage);
-    expect(migrated.version).toBe(2);
+    expect(migrated.version).toBe(3);
     expect(migrated.revision).toBe(0);
     expect(migrated.auditLog).toEqual([]);
     expect(migrated.release).toBeNull();
+    // Retention fields are back-filled: every clip gets lifecycle metadata and
+    // pre-policy clips are gathered into a single legacy import batch.
+    expect(migrated.importBatches).toHaveLength(1);
+    expect(migrated.tombstones).toEqual([]);
+    expect(migrated.recordings.every((recording) => recording.lifecycle)).toBe(
+      true,
+    );
+    expect(migrated.sites.every((site) => site.lifecycle)).toBe(true);
   });
 
   it("rejects structurally valid JSON with invalid nested domain fields", () => {

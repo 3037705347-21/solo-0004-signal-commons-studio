@@ -102,6 +102,8 @@ export function recordingFromDraft(
       .map((tag) => tag.trim())
       .filter(Boolean),
     color: draft.color,
+    importBatchId: existing?.importBatchId,
+    lifecycle: existing?.lifecycle,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

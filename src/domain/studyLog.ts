@@ -23,6 +23,16 @@ export function describeAction(action: StudyAction): string {
       return action.release.readiness.ready
         ? "Marked project ready"
         : "Returned project to review";
+    case "import-batch/create":
+      return `Recorded import batch ${action.batch.label}`;
+    case "retention/archive":
+      return `Archived ${action.target} ${action.id}`;
+    case "retention/restore":
+      return `Restored ${action.target} ${action.id} for re-qualification`;
+    case "retention/purge":
+      return `Purged expired ${action.target} ${action.id}`;
+    case "retention/sweep":
+      return "Ran the retention sweep";
     case "workspace/reset":
       return "Reset workspace to sample plan";
     case "workspace/sync":

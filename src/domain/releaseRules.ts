@@ -8,6 +8,12 @@ import type {
 } from "./models";
 import { createId } from "./ids";
 import { releaseFingerprint } from "./releaseIdentity";
+import {
+  isLiveSite,
+  releasesReferencingRecording,
+} from "./retentionRegistry";
+import { recordingRetention, siteRetention } from "./retention";
+
 export function evaluateRelease(
   state: StudyState,
   analysis: RouteAnalysis,
@@ -16,10 +22,16 @@ export function evaluateRelease(
   const blockers: string[] = [];
   const cautions: string[] = [];
   const critical = state.issues.filter(
-    (issue) => issue.severity === "critical" && issue.status !== "resolved",
+    (issue) =>
+      issue.severity === "critical" &&
+      issue.status !== "resolved" &&
+      issue.lifecycle?.state !== "archived",
   );
   const warnings = state.issues.filter(
-    (issue) => issue.severity === "warning" && issue.status !== "resolved",
+    (issue) =>
+      issue.severity === "warning" &&
+      issue.status !== "resolved" &&
+      issue.lifecycle?.state !== "archived",
   );
   if (analysis.blockingCount)
     blockers.push(
@@ -36,6 +48,58 @@ export function evaluateRelease(
     blockers.push(
       "The route should include arrival, texture, voice, and departure signals.",
     );
+
+  // Retention gate: archived material must not ship, and any material
+  // restored after the last successful check must re-earn qualification. The
+  // restoredAt timestamp is what proves a fresh check is still missing.
+  const lastCheck = state.project.lastReadinessCheck;
+  const restoredLiveRecordings = state.recordings.filter(
+    (recording) =>
+      recording.lifecycle?.restoredAt &&
+      (!lastCheck || recording.lifecycle.restoredAt > lastCheck),
+  );
+  if (restoredLiveRecordings.length)
+    blockers.push(
+      `${restoredLiveRecordings.length} restored clip${restoredLiveRecordings.length === 1 ? "" : "s"} must pass a fresh readiness check before release.`,
+    );
+  const restoredSites = state.sites.filter(
+    (site) =>
+      site.lifecycle?.restoredAt &&
+      (!lastCheck || site.lifecycle.restoredAt > lastCheck),
+  );
+  if (restoredSites.length)
+    blockers.push(
+      `${restoredSites.length} restored site${restoredSites.length === 1 ? "" : "s"} must be re-reviewed before release.`,
+    );
+
+  // Cleaned references: a route citation landing on a purged tombstone means
+  // the frozen lineage changed and blocks release until the route is repaired.
+  const purgedCitations = state.sites
+    .filter((site) => isLiveSite(state, site.id))
+    .flatMap((site) =>
+      site.recordingIds.filter(
+        (id) =>
+          !state.recordings.some((recording) => recording.id === id) &&
+          !releasesReferencingRecording(state, id).length,
+      ),
+    );
+  if (purgedCitations.length)
+    blockers.push(
+      `${purgedCitations.length} route reference${purgedCitations.length === 1 ? "" : "s"} point to purged material; repair the route before release.`,
+    );
+
+  const archivedOnRoute = state.sites
+    .filter((site) => siteRetention(site).state !== "archived")
+    .flatMap((site) => site.recordingIds)
+    .filter((id) => {
+      const recording = state.recordings.find((item) => item.id === id);
+      return recording && recordingRetention(recording).state === "archived";
+    });
+  if (archivedOnRoute.length)
+    blockers.push(
+      `${archivedOnRoute.length} archived clip${archivedOnRoute.length === 1 ? "" : "s"} still occupy the route.`,
+    );
+
   if (analysis.warningCount)
     cautions.push(
       `${analysis.warningCount} route warning${analysis.warningCount === 1 ? "" : "s"} should be reviewed.`,
@@ -60,6 +124,18 @@ export function evaluateRelease(
     checkedAt: at.toISOString(),
   };
 }
+
+/** Live (non-archived) recordings only drive route analysis and snapshots. */
+export function liveRecordings(state: StudyState) {
+  return state.recordings.filter(
+    (recording) => recordingRetention(recording).state !== "archived",
+  );
+}
+
+/** Live (non-archived) sites only drive route analysis and snapshots. */
+export function liveSites(state: StudyState) {
+  return state.sites.filter((site) => siteRetention(site).state !== "archived");
+}
 export function buildReleaseSnapshot(
   state: StudyState,
   analysis: RouteAnalysis,
@@ -71,9 +147,9 @@ export function buildReleaseSnapshot(
     throw new Error(
       "A snapshot can only be created after readiness checks pass.",
     );
-  const byId = new Map(
-    state.recordings.map((recording) => [recording.id, recording]),
-  );
+  const activeRecordings = liveRecordings(state);
+  const activeSites = liveSites(state);
+  const byId = new Map(activeRecordings.map((recording) => [recording.id, recording]));
   return {
     schemaVersion: 2,
     generatedAt: readiness.checkedAt,
@@ -88,12 +164,12 @@ export function buildReleaseSnapshot(
     },
     preferences: state.preferences,
     summary: {
-      recordingCount: state.recordings.length,
-      siteCount: state.sites.length,
+      recordingCount: activeRecordings.length,
+      siteCount: activeSites.length,
       routeSeconds: analysis.totalDurationSeconds,
       readinessScore: readiness.score,
     },
-    sites: state.sites
+    sites: activeSites
       .slice()
       .sort((a, b) => a.sequence - b.sequence)
       .map((site) => ({
@@ -105,7 +181,8 @@ export function buildReleaseSnapshot(
           ),
       })),
     unresolvedIssues: state.issues.filter(
-      (issue) => issue.status !== "resolved",
+      (issue) =>
+        issue.status !== "resolved" && issue.lifecycle?.state !== "archived",
     ),
   };
 }

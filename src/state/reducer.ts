@@ -6,8 +6,24 @@ import {
   transitionIssue,
   transitionProject,
 } from "../domain/transitions";
+import {
+  archiveImportBatch,
+  archiveIssue,
+  archiveRecording,
+  archiveSite,
+  purgeIssue,
+  purgeRecording,
+  purgeSite,
+  requalify,
+  restoreImportBatch,
+  restoreIssue,
+  restoreRecording,
+  restoreSite,
+  runRetentionSweep,
+  RetentionError,
+} from "../domain/retentionLifecycle";
 import type { StudyState } from "../domain/models";
-import type { StudyAction } from "./actions";
+import type { RetentionTarget, StudyAction } from "./actions";
 
 const AUDIT_LOG_LIMIT = 80;
 
@@ -214,15 +230,47 @@ export function workspaceReducer(
       const exists = state.recordings.some(
         (recording) => recording.id === action.recording.id,
       );
+      const recording =
+        exists || action.recording.lifecycle
+          ? action.recording
+          : {
+              ...action.recording,
+              importBatchId: action.recording.importBatchId ?? "batch-manual-entry",
+              lifecycle: {
+                category: "active-recording" as const,
+                state: "within-retention" as const,
+                anchor: action.recording.createdAt,
+              },
+            };
+      const importBatches =
+        !exists &&
+        !state.importBatches.some(
+          (batch) => batch.id === (recording.importBatchId ?? "batch-manual-entry"),
+        )
+          ? [
+              ...state.importBatches,
+              {
+                id: "batch-manual-entry",
+                label: "Manual library entries",
+                source: "Created directly in the workspace",
+                importedAt: recording.createdAt,
+                recordingIds: [recording.id],
+              },
+            ]
+          : state.importBatches.map((batch) =>
+              !exists && batch.id === recording.importBatchId
+                ? { ...batch, recordingIds: [...batch.recordingIds, recording.id] }
+                : batch,
+            );
       const recordings = exists
-        ? state.recordings.map((recording) =>
-            recording.id === action.recording.id ? action.recording : recording,
+        ? state.recordings.map((item) =>
+            item.id === recording.id ? recording : item,
           )
-        : [...state.recordings, action.recording];
+        : [...state.recordings, recording];
       return mutate(
         state,
         action,
-        regressReadyProject({ ...state, recordings }),
+        regressReadyProject({ ...state, recordings, importBatches }),
       );
     }
     case "recording/remove": {
@@ -314,6 +362,16 @@ export function workspaceReducer(
         state,
         action.release.readiness.ready,
       );
+      // A newly frozen release supersedes its predecessor; keep the prior
+      // version (with its snapshot) in the lineage so old citations resolve.
+      const releaseHistory = [...(staged.releaseHistory ?? [])];
+      if (
+        staged.release &&
+        action.release.readiness.ready &&
+        staged.release.id !== action.release.id
+      ) {
+        releaseHistory.push(staged.release);
+      }
       return finalizeAction(
         {
           ...staged,
@@ -322,9 +380,59 @@ export function workspaceReducer(
             lastReadinessCheck: action.release.readiness.checkedAt,
           },
           release: action.release,
+          releaseHistory,
         },
         action,
         state.revision,
+      );
+    }
+    case "import-batch/create": {
+      if (
+        state.importBatches.some((batch) => batch.id === action.batch.id)
+      )
+        return state;
+      return mutate(
+        state,
+        action,
+        {
+          ...state,
+          importBatches: [...state.importBatches, action.batch],
+        },
+      );
+    }
+    case "retention/archive":
+      return applyRetention(state, action, (current, id, at) =>
+        archiveLifecycle(current, action.target, id, at),
+      );
+    case "retention/restore":
+      return applyRetention(state, action, (current, id, at) =>
+        restoreLifecycle(current, action.target, id, at),
+      );
+    case "retention/purge":
+      return applyRetention(state, action, (current, id, at) =>
+        purgeLifecycle(current, action.target, id, at),
+      );
+    case "retention/sweep": {
+      const disposition = commandDisposition(state, action);
+      if (disposition === "duplicate") return state;
+      if (disposition === "conflict") return rejectCommand(state, action);
+      const result = runRetentionSweep(state, action.at ?? new Date());
+      const changedCount =
+        result.archivedRecordings +
+        result.archivedSites +
+        result.archivedIssues +
+        result.purgedRecordings +
+        result.purgedSites +
+        result.purgedIssues;
+      if (changedCount === 0) {
+        // Nothing changed: do not bump the revision.
+        return state;
+      }
+      return finalizeAction(
+        invalidateRelease(regressReadyProject(result.state)),
+        action,
+        state.revision + 1,
+        action.at,
       );
     }
     case "workspace/reset":
@@ -333,5 +441,92 @@ export function workspaceReducer(
       return action.state;
     default:
       return state;
+  }
+}
+
+function applyRetention(
+  state: StudyState,
+  action: Extract<
+    StudyAction,
+    { type: "retention/archive" | "retention/restore" | "retention/purge" }
+  >,
+  apply: (state: StudyState, id: string, at: Date) => StudyState,
+): StudyState {
+  const disposition = commandDisposition(state, action);
+  if (disposition === "duplicate") return state;
+  if (disposition === "conflict") return rejectCommand(state, action);
+  try {
+    const next = apply(state, action.id, action.at ?? new Date());
+    if (next === state) return state;
+    // Lifecycle moves invalidate the frozen release; restore additionally
+    // regresses a ready project so qualification must be earned again.
+    const regressed =
+      action.type === "retention/restore"
+        ? requalify(next)
+        : regressReadyProject(next);
+    return finalizeAction(
+      invalidateRelease(regressed),
+      action,
+      state.revision + 1,
+      action.at,
+    );
+  } catch (error) {
+    if (error instanceof RetentionError) {
+      // Domain guard refused the lifecycle move; record a rejected command.
+      return rejectCommand(state, action, action.at);
+    }
+    throw error;
+  }
+}
+
+function archiveLifecycle(
+  state: StudyState,
+  target: RetentionTarget,
+  id: string,
+  at: Date,
+): StudyState {
+  switch (target) {
+    case "recording":
+      return archiveRecording(state, id, at);
+    case "site":
+      return archiveSite(state, id, at);
+    case "issue":
+      return archiveIssue(state, id, at);
+    case "import-batch":
+      return archiveImportBatch(state, id, at);
+  }
+}
+
+function restoreLifecycle(
+  state: StudyState,
+  target: RetentionTarget,
+  id: string,
+  at: Date,
+): StudyState {
+  switch (target) {
+    case "recording":
+      return restoreRecording(state, id, at);
+    case "site":
+      return restoreSite(state, id, at);
+    case "issue":
+      return restoreIssue(state, id, at);
+    case "import-batch":
+      return restoreImportBatch(state, id, at);
+  }
+}
+
+function purgeLifecycle(
+  state: StudyState,
+  target: Exclude<RetentionTarget, "import-batch">,
+  id: string,
+  at: Date,
+): StudyState {
+  switch (target) {
+    case "recording":
+      return purgeRecording(state, id, at);
+    case "site":
+      return purgeSite(state, id, at);
+    case "issue":
+      return purgeIssue(state, id, at);
   }
 }

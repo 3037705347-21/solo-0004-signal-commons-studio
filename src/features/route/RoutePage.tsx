@@ -31,6 +31,8 @@ import {
   formatPercent,
   titleCase,
 } from "../../domain/formatters";
+import { liveRecordings, liveSites } from "../../domain/releaseRules";
+import { resolveRecording } from "../../domain/retentionRegistry";
 import type { Recording, Site } from "../../domain/models";
 import { useStudy } from "../../state/StudyContext";
 
@@ -41,14 +43,16 @@ export function RoutePage() {
     null,
   );
   const [notice, setNotice] = useState<string | null>(null);
+  const activeRecordings = useMemo(() => liveRecordings(state), [state]);
+  const activeSites = useMemo(() => liveSites(state), [state]);
   const analysis = useMemo(
-    () => analyzeRoute(state.recordings, state.sites),
-    [state.recordings, state.sites],
+    () => analyzeRoute(activeRecordings, activeSites),
+    [activeRecordings, activeSites],
   );
-  const unplaced = getUnplacedRecordings(state.recordings, state.sites);
+  const unplaced = getUnplacedRecordings(activeRecordings, activeSites);
   const place = (recording: Recording, site: Site) => {
     const recordingById = new Map(
-      state.recordings.map((candidate) => [candidate.id, candidate]),
+      activeRecordings.map((candidate) => [candidate.id, candidate]),
     );
     const currentClips = site.recordingIds
       .filter((id) => id !== recording.id)
@@ -130,15 +134,16 @@ export function RoutePage() {
             </div>
           </div>
           <div className="site-list">
-            {state.sites
+            {activeSites
               .slice()
               .sort((a, b) => a.sequence - b.sequence)
               .map((site, index) => (
                 <SiteLane
                   key={site.id}
+                  state={state}
                   site={site}
                   index={index}
-                  recordings={state.recordings}
+                  recordings={activeRecordings}
                   analysis={analysis.sites.find(
                     (item) => item.siteId === site.id,
                   )}
@@ -243,6 +248,7 @@ export function RoutePage() {
 function SiteLane({
   site,
   index,
+  state,
   recordings,
   analysis,
   selectedRecording,
@@ -253,6 +259,7 @@ function SiteLane({
 }: {
   site: Site;
   index: number;
+  state: ReturnType<typeof useStudy>["state"];
   recordings: Recording[];
   analysis?: ReturnType<typeof analyzeRoute>["sites"][number];
   selectedRecording: string | null;
@@ -265,9 +272,15 @@ function SiteLane({
   const recordingMap = new Map(
     recordings.map((recording) => [recording.id, recording]),
   );
-  const placed = site.recordingIds
-    .map((id) => recordingMap.get(id))
+  // References resolve through the registry so a purged or archived clip keeps
+  // its position in the sequence as a stub instead of becoming a dangling id.
+  const resolved = site.recordingIds.map((id) => resolveRecording(state, id));
+  const placed = resolved
+    .map((item) => item?.recording)
     .filter((recording): recording is Recording => Boolean(recording));
+  const stubs = resolved.filter(
+    (item) => item && item.availability !== "live",
+  ) as NonNullable<(typeof resolved)[number]>[];
   const selected = selectedRecording
     ? recordingMap.get(selectedRecording)
     : undefined;
@@ -361,7 +374,32 @@ function SiteLane({
               <Plus size={15} /> Place <strong>{selected.title}</strong> here
             </button>
           )}
-          {placed.length === 0 && !selected && (
+          {stubs.map((item) => (
+            <div
+              className={`placement-item placement-stub ${item.availability}`}
+              key={`${item.id}-${item.availability}`}
+            >
+              <GripVertical size={15} className="drag-handle" />
+              <RecordingGlyph color="#9aa3ad" size="small" />
+              <div className="placement-info">
+                <strong>{item.stub?.label ?? item.recording?.title ?? item.id}</strong>
+                <span>
+                  {item.availability === "purged"
+                    ? "Cleaned from library · reference retained"
+                    : "Archived · excluded from release"}
+                </span>
+              </div>
+              {item.availability === "live" ? null : (
+                <Button
+                  variant="ghost"
+                  icon={<Minus size={14} />}
+                  aria-label={`Detach ${item.stub?.label ?? item.id}`}
+                  onClick={() => onRemove(item.id)}
+                />
+              )}
+            </div>
+          ))}
+          {placed.length === 0 && stubs.length === 0 && !selected && (
             <div className="site-empty">
               Select a clip from the queue to place it here.
             </div>
