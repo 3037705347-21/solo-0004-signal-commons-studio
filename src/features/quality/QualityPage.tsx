@@ -70,7 +70,10 @@ export function QualityPage() {
   const [showModal, setShowModal] = useState(false);
   const [readiness, setReadiness] = useState(() =>
     state.release?.readiness ??
-      evaluateRelease(state, analyzeRoute(state.recordings, state.sites)),
+      evaluateRelease(
+        state,
+        analyzeRoute(state.recordings, state.sites, state.consents),
+      ),
   );
   const [toast, setToast] = useState<string | null>(null);
   const releaseCurrent = isReleaseCurrent(state, state.release);
@@ -405,6 +408,15 @@ function SiteChecklistCard({
               <span className="checklist-clip">
                 <strong>{entry.title}</strong>
                 <small>{entry.catalogId}</small>
+              </span>
+              <span
+                className={`checklist-consent consent-badge-${entry.consentStatus}`}
+                data-testid={`checklist-consent-${entry.recordingId}`}
+              >
+                {titleCase(entry.consentStatus)}
+                {entry.consentPurposes.length
+                  ? ` · ${entry.consentPurposes.join(", ")}`
+                  : ""}
               </span>
               <span className="checklist-duration">
                 <Clock size={13} />

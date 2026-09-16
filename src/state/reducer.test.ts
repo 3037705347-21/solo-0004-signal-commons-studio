@@ -151,4 +151,83 @@ describe("workspace reducer boundaries", () => {
     expect(second.snapshot?.releaseId).toBe(second.id);
     expect(second.snapshot?.releaseSequence).toBe(2);
   });
+
+  it("appends a withdrawal, denormalizes the headline, and invalidates the release", () => {
+    const state = createSeedStudy();
+    const readiness: ReleaseResult = {
+      ready: true,
+      score: 100,
+      blockers: [],
+      cautions: [],
+      checkedAt: "2026-09-10T10:00:00.000Z",
+    };
+    const release = createReleaseRecord(
+      state,
+      analyzeRoute(state.recordings, state.sites, state.consents),
+      readiness,
+    );
+    const frozen = {
+      ...state,
+      release: { ...release, status: "ready" as const },
+      project: { ...state.project, stage: "ready" as const },
+    };
+    const next = workspaceReducer(frozen, {
+      type: "consent/withdraw",
+      grant: {
+        id: "grant-test-withdraw",
+        recordingId: "rec-underpass",
+        status: "withdrawn",
+        purposes: [],
+        grantedBy: "Lin Qiao",
+        channel: "Phone call",
+        evidenceRef: "NOTE-1",
+        note: "Changed mind.",
+        grantedAt: "2026-09-15",
+        createdAt: "2026-09-15T10:00:00.000Z",
+      },
+    });
+    expect(next.consents.at(-1)?.id).toBe("grant-test-withdraw");
+    expect(
+      next.recordings.find((recording) => recording.id === "rec-underpass")
+        ?.consentStatus,
+    ).toBe("withdrawn");
+    expect(next.release?.status).toBe("stale");
+    expect(next.project.stage).not.toBe("ready");
+    // The frozen snapshot still carries the original release basis.
+    expect(
+      release.snapshot?.sites.some((site) =>
+        site.recordings.some(
+          (recording) =>
+            recording.id === "rec-underpass" &&
+            recording.consentBasis?.grantId === "grant-underpass",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects placing a clip whose consent was withdrawn", () => {
+    const state = createSeedStudy();
+    const withdrawn = workspaceReducer(state, {
+      type: "consent/withdraw",
+      grant: {
+        id: "grant-test-withdraw-workshop",
+        recordingId: "rec-workshop",
+        status: "withdrawn",
+        purposes: [],
+        grantedBy: "Jae Min",
+        channel: "Email",
+        evidenceRef: "NOTE-2",
+        note: "Remove from route.",
+        grantedAt: "2026-09-15",
+        createdAt: "2026-09-15T10:00:00.000Z",
+      },
+    });
+    expect(() =>
+      workspaceReducer(withdrawn, {
+        type: "placement/assign",
+        recordingId: "rec-workshop",
+        siteId: "site-threshold",
+      }),
+    ).toThrow(/cannot be used/);
+  });
 });

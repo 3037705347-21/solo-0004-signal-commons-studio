@@ -13,8 +13,9 @@ export function parseSnapshot(raw: string): Snapshot | null {
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== "object") return null;
     const candidate = value as Partial<Snapshot>;
+    const schemaVersion = candidate.schemaVersion as number;
     if (
-      candidate.schemaVersion !== 2 ||
+      (schemaVersion !== 2 && schemaVersion !== 3) ||
       typeof candidate.releaseId !== "string" ||
       !Number.isInteger(candidate.releaseSequence) ||
       !candidate.project ||
@@ -26,6 +27,9 @@ export function parseSnapshot(raw: string): Snapshot | null {
       !Array.isArray(candidate.unresolvedIssues)
     )
       return null;
+    if (candidate.schemaVersion === 3 && !Array.isArray(candidate.consents))
+      return null;
+    // Snapshots are frozen evidence; retain the schema version they shipped with.
     return value as Snapshot;
   } catch {
     return null;

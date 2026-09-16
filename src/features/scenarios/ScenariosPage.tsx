@@ -26,8 +26,8 @@ export function ScenariosPage() {
   const [draft, setDraft] = useState<RoutePreferences>(state.preferences);
   const [saved, setSaved] = useState(false);
   const analysis = useMemo(
-    () => analyzeRoute(state.recordings, state.sites),
-    [state.recordings, state.sites],
+    () => analyzeRoute(state.recordings, state.sites, state.consents),
+    [state.recordings, state.sites, state.consents],
   );
   const projection = useMemo(
     () => projectScenario(state, analysis, draft),

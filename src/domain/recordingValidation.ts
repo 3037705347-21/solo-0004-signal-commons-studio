@@ -95,7 +95,8 @@ export function recordingFromDraft(
     signalRole: draft.signalRole,
     sensitivity: draft.sensitivity,
     transcriptStatus: draft.transcriptStatus,
-    consentStatus: draft.consentStatus,
+    // New clips start with no ledger entry; standing resolves to "pending".
+    consentStatus: existing?.consentStatus ?? "pending",
     isFeatured: draft.isFeatured,
     tags: draft.tags
       .split(",")
@@ -123,7 +124,6 @@ export function draftFromRecording(recording: Recording): RecordingDraft {
     signalRole: recording.signalRole,
     sensitivity: recording.sensitivity,
     transcriptStatus: recording.transcriptStatus,
-    consentStatus: recording.consentStatus,
     isFeatured: recording.isFeatured,
     tags: recording.tags.join(", "),
     color: recording.color,
@@ -145,7 +145,6 @@ export const emptyRecordingDraft: RecordingDraft = {
   signalRole: "texture",
   sensitivity: "public",
   transcriptStatus: "missing",
-  consentStatus: "pending",
   isFeatured: false,
   tags: "",
   color: "#2f7c75",

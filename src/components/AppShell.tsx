@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   RotateCcw,
   Settings2,
+  ShieldCheck,
   Sparkles,
   SunMedium,
 } from "lucide-react";
@@ -28,6 +29,12 @@ const navigation = [
     label: "Listening route",
     icon: Compass,
     detail: "Sites & sequence",
+  },
+  {
+    to: "/consent",
+    label: "Consent ledger",
+    icon: ShieldCheck,
+    detail: "Scope & lifecycle",
   },
   {
     to: "/quality",

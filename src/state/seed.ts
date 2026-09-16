@@ -1,4 +1,9 @@
-import type { Recording, Site, StudyState } from "../domain/models";
+import type {
+  ConsentGrant,
+  Recording,
+  Site,
+  StudyState,
+} from "../domain/models";
 
 const stamp = "2026-09-08T09:00:00.000Z";
 const recordings: Recording[] = [
@@ -47,7 +52,7 @@ const recordings: Recording[] = [
     signalRole: "texture",
     sensitivity: "public",
     transcriptStatus: "draft",
-    consentStatus: "confirmed",
+    consentStatus: "restricted",
     isFeatured: true,
     tags: ["market", "voices", "work"],
     color: "#7c6aa6",
@@ -99,7 +104,7 @@ const recordings: Recording[] = [
     signalRole: "voice",
     sensitivity: "restricted",
     transcriptStatus: "draft",
-    consentStatus: "pending",
+    consentStatus: "expired",
     isFeatured: true,
     tags: ["oral history", "neighborhood", "care"],
     color: "#c7903d",
@@ -151,7 +156,7 @@ const recordings: Recording[] = [
     signalRole: "texture",
     sensitivity: "public",
     transcriptStatus: "verified",
-    consentStatus: "confirmed",
+    consentStatus: "withdrawn",
     isFeatured: false,
     tags: ["craft", "hands", "rhythm"],
     color: "#8c9474",
@@ -211,6 +216,124 @@ const recordings: Recording[] = [
     updatedAt: stamp,
   },
 ];
+
+const consents: ConsentGrant[] = [
+  {
+    id: "grant-underpass",
+    recordingId: "rec-underpass",
+    status: "active",
+    purposes: ["route", "transcript", "archive"],
+    grantedBy: "Lin Qiao",
+    channel: "Signed release form",
+    evidenceRef: "FORM-2026-014",
+    note: "Full release for the 2026 listening study.",
+    grantedAt: "2026-06-14",
+    createdAt: "2026-06-14T18:00:00.000Z",
+  },
+  {
+    id: "grant-market-full",
+    recordingId: "rec-market",
+    status: "restricted",
+    purposes: ["route", "transcript", "archive"],
+    grantedBy: "Amina Patel",
+    channel: "Email confirmation",
+    evidenceRef: "EMAIL-2026-031",
+    note: "Initial full release confirmed by email.",
+    grantedAt: "2026-06-18",
+    supersededAt: "2026-08-20T10:00:00.000Z",
+    createdAt: "2026-06-18T17:30:00.000Z",
+  },
+  {
+    id: "grant-market-route-only",
+    recordingId: "rec-market",
+    status: "restricted",
+    purposes: ["route", "transcript"],
+    grantedBy: "Amina Patel",
+    channel: "Follow-up email",
+    evidenceRef: "EMAIL-2026-047",
+    note:
+      "Scope narrowed on 2026-08-20: on-site route and captions only; public archive withheld pending anonymization.",
+    grantedAt: "2026-08-20",
+    createdAt: "2026-08-20T10:00:00.000Z",
+  },
+  {
+    id: "grant-tram",
+    recordingId: "rec-tram",
+    status: "active",
+    purposes: ["route", "transcript", "archive"],
+    grantedBy: "Rosa Mendes",
+    channel: "Signed release form",
+    evidenceRef: "FORM-2026-018",
+    note: "Full release, named credit requested.",
+    grantedAt: "2026-06-20",
+    createdAt: "2026-06-20T19:00:00.000Z",
+  },
+  {
+    id: "grant-courtyard",
+    recordingId: "rec-courtyard",
+    status: "active",
+    purposes: ["route", "transcript"],
+    grantedBy: "North Block listening circle",
+    channel: "Group meeting minutes",
+    evidenceRef: "MINUTES-2026-009",
+    note: "Route and transcript use agreed for the field season only.",
+    grantedAt: "2026-06-23",
+    expiresAt: "2026-08-31",
+    createdAt: "2026-06-23T20:00:00.000Z",
+  },
+  {
+    id: "grant-drain",
+    recordingId: "rec-drain",
+    status: "active",
+    purposes: ["route", "transcript", "archive"],
+    grantedBy: "Riverside youth lab guardian group",
+    channel: "Guardian consent pack",
+    evidenceRef: "PACK-2026-YL-05",
+    note: "Guardian-approved full release; first names only.",
+    grantedAt: "2026-06-26",
+    createdAt: "2026-06-26T16:00:00.000Z",
+  },
+  {
+    id: "grant-workshop",
+    recordingId: "rec-workshop",
+    status: "withdrawn",
+    purposes: ["route", "transcript", "archive"],
+    grantedBy: "Jae Min",
+    channel: "Verbal withdrawal with witness",
+    evidenceRef: "NOTE-2026-WITHDRAW-02",
+    note:
+      "Consent withdrawn on 2026-08-28; the clip cannot be used in new content. Existing releases retain their frozen basis.",
+    grantedAt: "2026-07-01",
+    supersededAt: "2026-08-28T12:00:00.000Z",
+    createdAt: "2026-08-28T12:00:00.000Z",
+  },
+  {
+    id: "grant-bus",
+    recordingId: "rec-bus",
+    status: "active",
+    purposes: ["route", "transcript", "archive"],
+    grantedBy: "Milo Chen",
+    channel: "Signed release form",
+    evidenceRef: "FORM-2026-022",
+    note: "Full release for route and study archive.",
+    grantedAt: "2026-07-04",
+    createdAt: "2026-07-04T18:30:00.000Z",
+  },
+  {
+    id: "grant-park",
+    recordingId: "rec-park",
+    status: "restricted",
+    purposes: ["route", "transcript"],
+    grantedBy: "Elena Matic",
+    channel: "Signed release with conditions",
+    evidenceRef: "FORM-2026-026",
+    note:
+      "Conditional release: route playback and captions allowed; do not include in the downloadable public archive.",
+    grantedAt: "2026-07-08",
+    createdAt: "2026-07-08T17:00:00.000Z",
+  },
+];
+
 const sites: Site[] = [
   {
     id: "site-threshold",
@@ -270,7 +393,7 @@ const sites: Site[] = [
 ];
 export function createSeedStudy(): StudyState {
   return structuredClone({
-    version: 2,
+    version: 3,
     revision: 0,
     updatedAt: stamp,
     project: {
@@ -283,13 +406,14 @@ export function createSeedStudy(): StudyState {
       stage: "review",
     },
     recordings,
+    consents,
     sites,
     issues: [
       {
         id: "issue-consent",
-        title: "Confirm courtyard release scope",
+        title: "Renew courtyard release scope",
         description:
-          "The listening circle needs to confirm whether the full conversation can be included in the public route.",
+          "The listening circle's consent expired on 2026-08-31. Renew it or remove the conversation from the public route.",
         severity: "critical",
         status: "open",
         recordingId: "rec-courtyard",

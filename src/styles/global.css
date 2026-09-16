@@ -1744,3 +1744,251 @@ strong {
     justify-self: start;
   }
 }
+
+/* Consent ledger */
+.consent-strip strong {
+  font-family: "Space Grotesk", sans-serif;
+}
+.consent-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.consent-banner.danger {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+  background: color-mix(in srgb, var(--red) 7%, var(--paper));
+}
+.consent-banner-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--teal);
+  background: color-mix(in srgb, var(--teal) 12%, var(--paper));
+}
+.consent-banner.danger .consent-banner-icon {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, var(--paper));
+}
+.consent-banner-copy {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+.consent-banner-copy strong {
+  font-size: 15px;
+}
+.consent-banner-copy p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.consent-release-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: none;
+}
+.consent-list {
+  display: grid;
+  gap: 14px;
+}
+.consent-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 14px;
+  padding: 18px 20px;
+  display: grid;
+  gap: 12px;
+}
+.consent-card.consent-confirmed {
+  border-left-color: var(--teal);
+}
+.consent-card.consent-restricted {
+  border-left-color: var(--amber);
+}
+.consent-card.consent-expired,
+.consent-card.consent-withdrawn {
+  border-left-color: var(--red);
+}
+.consent-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.consent-card-head h3 {
+  margin-top: 2px;
+  font-size: 17px;
+}
+.consent-status-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.consent-provenance,
+.consent-expiry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.consent-expiry {
+  color: var(--amber);
+}
+.consent-card-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.consent-purposes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.consent-purpose {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  border: 1px solid var(--line);
+}
+.consent-purpose.covered {
+  color: var(--teal-dark);
+  background: color-mix(in srgb, var(--teal) 10%, var(--paper));
+  border-color: color-mix(in srgb, var(--teal) 35%, var(--line));
+}
+.consent-purpose.uncovered {
+  color: var(--muted);
+  background: #f0efe9;
+}
+.consent-evidence {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  background: #f0efe9;
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+.consent-evidence em {
+  color: var(--muted);
+  font-style: normal;
+}
+.consent-impact-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.consent-sites {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+}
+.consent-muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+.consent-frozen {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border: 1px dashed color-mix(in srgb, var(--teal) 40%, var(--line));
+  background: color-mix(in srgb, var(--teal) 6%, var(--paper));
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.consent-history-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--teal-dark);
+  font-size: 12.5px;
+  padding: 0;
+}
+.consent-history-list {
+  margin: 8px 0 0;
+  padding-left: 4px;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.consent-history-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.consent-purpose-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+.consent-purpose-checks {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+@media (max-width: 900px) {
+  .consent-card-head {
+    flex-direction: column;
+  }
+  .consent-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* Consent indicators on route and checklist */
+.placement-item.placement-consent-blocked {
+  border: 1px solid color-mix(in srgb, var(--red) 45%, var(--line));
+  background: color-mix(in srgb, var(--red) 6%, var(--paper));
+  border-radius: 10px;
+  padding: 8px;
+}
+.placement-consent-blocked .placement-info {
+  gap: 4px;
+}
+.checklist-consent {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.consent-badge-confirmed {
+  color: var(--teal-dark);
+}
+.consent-badge-restricted {
+  color: var(--amber);
+}
+.consent-badge-pending {
+  color: var(--muted);
+}
+.consent-badge-expired,
+.consent-badge-withdrawn {
+  color: var(--red);
+  font-weight: 600;
+}

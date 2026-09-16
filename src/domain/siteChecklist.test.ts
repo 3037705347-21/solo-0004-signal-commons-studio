@@ -22,4 +22,18 @@ describe("site checklist", () => {
     expect(csv).toContain("Tram brake chorus");
     expect(csv).toContain("duration (sec)");
   });
+
+  it("includes the current consent standing and evidence for each placed clip", () => {
+    const state = createSeedStudy();
+    const checklist = buildSiteChecklist(state, "site-voices");
+    const [entry] = checklist?.entries ?? [];
+    expect(entry.title).toBe("Courtyard conversation");
+    expect(entry.consentStatus).toBe("expired");
+    expect(entry.consentGrantedBy).toMatch(/listening circle/i);
+    expect(entry.consentEvidenceRef).toContain("MINUTES");
+    const csv = checklist ? serializeSiteChecklistCsv(checklist) : "";
+    expect(csv).toContain("Consent");
+    expect(csv).toContain("Expired");
+    expect(csv).toContain("MINUTES-2026-009");
+  });
 });

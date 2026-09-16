@@ -1,3 +1,4 @@
+import { buildConsentBasis } from "./consent";
 import type {
   QualityIssue,
   ReleaseResult,
@@ -8,6 +9,12 @@ import type {
 } from "./models";
 import { createId } from "./ids";
 import { releaseFingerprint } from "./releaseIdentity";
+
+/** Route findings that are not consent-derived. */
+function isStructuralFinding(id: string): boolean {
+  return !id.startsWith("consent-");
+}
+
 export function evaluateRelease(
   state: StudyState,
   analysis: RouteAnalysis,
@@ -21,9 +28,20 @@ export function evaluateRelease(
   const warnings = state.issues.filter(
     (issue) => issue.severity === "warning" && issue.status !== "resolved",
   );
-  if (analysis.blockingCount)
+  const consentErrors = analysis.findings.filter(
+    (finding) => finding.type === "error" && !isStructuralFinding(finding.id),
+  );
+  const structuralBlocking = analysis.blockingCount - consentErrors.length;
+  if (structuralBlocking > 0)
     blockers.push(
-      `${analysis.blockingCount} route constraint${analysis.blockingCount === 1 ? "" : "s"} remain.`,
+      `${structuralBlocking} route constraint${structuralBlocking === 1 ? "" : "s"} remain.`,
+    );
+  const uniqueConsentErrors = new Map(
+    consentErrors.map((finding) => [finding.recordingId ?? finding.id, finding]),
+  );
+  if (uniqueConsentErrors.size)
+    blockers.push(
+      `${uniqueConsentErrors.size} placed clip${uniqueConsentErrors.size === 1 ? "" : "s"} lack usable route consent and cannot be released.`,
     );
   if (critical.length)
     blockers.push(
@@ -35,6 +53,13 @@ export function evaluateRelease(
   if (analysis.roleCoverage < 1)
     blockers.push(
       "The route should include arrival, texture, voice, and departure signals.",
+    );
+  const archiveGaps = analysis.findings.filter(
+    (finding) => finding.id.startsWith("consent-archive-"),
+  );
+  if (archiveGaps.length)
+    cautions.push(
+      `${archiveGaps.length} placed clip${archiveGaps.length === 1 ? " is" : "s are"} cleared for the route but not for the public study archive.`,
     );
   if (analysis.warningCount)
     cautions.push(
@@ -60,12 +85,14 @@ export function evaluateRelease(
     checkedAt: at.toISOString(),
   };
 }
+
 export function buildReleaseSnapshot(
   state: StudyState,
   analysis: RouteAnalysis,
   readiness: ReleaseResult,
   releaseId: string,
   releaseSequence: number,
+  at = new Date(),
 ): Snapshot {
   if (!readiness.ready)
     throw new Error(
@@ -75,7 +102,7 @@ export function buildReleaseSnapshot(
     state.recordings.map((recording) => [recording.id, recording]),
   );
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: readiness.checkedAt,
     releaseId,
     releaseSequence,
@@ -102,8 +129,18 @@ export function buildReleaseSnapshot(
           .map((id) => byId.get(id))
           .filter((recording): recording is NonNullable<typeof recording> =>
             Boolean(recording),
-          ),
+          )
+          .map((recording) => {
+            // Freeze the consent basis under which this released clip shipped.
+            const basis = buildConsentBasis(
+              recording.id,
+              state.consents,
+              at,
+            );
+            return basis ? { ...recording, consentBasis: basis } : recording;
+          }),
       })),
+    consents: state.consents.map((grant) => structuredClone(grant)),
     unresolvedIssues: state.issues.filter(
       (issue) => issue.status !== "resolved",
     ),
@@ -114,6 +151,7 @@ export function createReleaseRecord(
   state: StudyState,
   analysis: RouteAnalysis,
   readiness: ReleaseResult,
+  at = new Date(),
 ): ReleaseRecord {
   const releaseId = createId("release");
   const releaseSequence = (state.release?.sequence ?? 0) + 1;
@@ -124,6 +162,7 @@ export function createReleaseRecord(
         readiness,
         releaseId,
         releaseSequence,
+        at,
       )
     : undefined;
   return {

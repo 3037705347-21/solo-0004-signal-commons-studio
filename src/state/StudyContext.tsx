@@ -21,6 +21,8 @@ import {
   isReleaseCurrent,
 } from "../domain/releaseRules";
 import type {
+  ConsentGrant,
+  ConsentPurpose,
   Recording,
   RecordingDraft,
   IssueDraft,
@@ -40,6 +42,16 @@ interface CommandResult<T = undefined> {
   value?: T;
   errors?: Record<string, string>;
   message?: string;
+}
+
+export interface ConsentInput {
+  purposes: ConsentPurpose[];
+  grantedBy: string;
+  channel: string;
+  evidenceRef: string;
+  note: string;
+  grantedAt: string;
+  expiresAt?: string;
 }
 
 interface StudyContextValue {
@@ -62,6 +74,18 @@ interface StudyContextValue {
     issueId: string,
     status: IssueStatus,
   ) => CommandResult;
+  recordConsent: (
+    recordingId: string,
+    input: ConsentInput,
+  ) => CommandResult<ConsentGrant>;
+  restrictConsent: (
+    recordingId: string,
+    input: ConsentInput,
+  ) => CommandResult<ConsentGrant>;
+  withdrawConsent: (
+    recordingId: string,
+    input: Pick<ConsentInput, "grantedBy" | "channel" | "evidenceRef" | "note">,
+  ) => CommandResult<ConsentGrant>;
   updatePreferences: (preferences: RoutePreferences) => void;
   checkReadiness: () => ReleaseResult;
   createSnapshot: () => CommandResult<Snapshot>;
@@ -259,13 +283,139 @@ export function StudyProvider({ children }: { children: ReactNode }) {
     dispatch(withCommandMeta({ type: "preferences/update", preferences }));
   }, [withCommandMeta]);
 
+  const validateConsentInput = useCallback(
+    (
+      recordingId: string,
+      input: Pick<
+        ConsentInput,
+        "grantedBy" | "channel" | "evidenceRef" | "note"
+      > & { purposes?: ConsentPurpose[] },
+      requirePurposes = true,
+    ): Record<string, string> => {
+      const errors: Record<string, string> = {};
+      if (!state.recordings.some((recording) => recording.id === recordingId))
+        errors.recording = "Select a clip for this consent decision.";
+      if (!input.grantedBy.trim())
+        errors.grantedBy = "Name who granted or withdrew consent.";
+      if (!input.channel.trim())
+        errors.channel = "Record how the decision was captured.";
+      if (!input.evidenceRef.trim())
+        errors.evidenceRef = "Reference the evidence (form, email, or note).";
+      if (
+        requirePurposes &&
+        (!input.purposes || input.purposes.length === 0)
+      )
+        errors.purposes = "Choose at least one authorized purpose.";
+      return errors;
+    },
+    [state.recordings],
+  );
+
+  const buildGrant = useCallback(
+    (
+      actionType:
+        | "consent/grant"
+        | "consent/restrict"
+        | "consent/withdraw",
+      recordingId: string,
+      input: ConsentInput,
+    ): ConsentGrant => {
+      const now = new Date().toISOString();
+      const status =
+        actionType === "consent/grant"
+          ? "active"
+          : actionType === "consent/restrict"
+            ? "restricted"
+            : "withdrawn";
+      return {
+        id: createId("grant"),
+        recordingId,
+        status,
+        purposes:
+          actionType === "consent/withdraw" ? [] : input.purposes,
+        grantedBy: input.grantedBy.trim(),
+        channel: input.channel.trim(),
+        evidenceRef: input.evidenceRef.trim(),
+        note: input.note.trim(),
+        grantedAt: input.grantedAt || now.slice(0, 10),
+        expiresAt: input.expiresAt?.trim() || undefined,
+        createdAt: now,
+      };
+    },
+    [],
+  );
+
+  const recordConsent = useCallback(
+    (recordingId: string, input: ConsentInput): CommandResult<ConsentGrant> => {
+      const errors = validateConsentInput(recordingId, input);
+      if (Object.keys(errors).length)
+        return {
+          ok: false,
+          errors,
+          message: "Review the consent details before saving.",
+        };
+      const grant = buildGrant("consent/grant", recordingId, input);
+      dispatch(withCommandMeta({ type: "consent/grant", grant }));
+      return { ok: true, value: grant };
+    },
+    [buildGrant, validateConsentInput, withCommandMeta],
+  );
+
+  const restrictConsent = useCallback(
+    (recordingId: string, input: ConsentInput): CommandResult<ConsentGrant> => {
+      const errors = validateConsentInput(recordingId, input);
+      if (Object.keys(errors).length)
+        return {
+          ok: false,
+          errors,
+          message: "Review the restricted scope before saving.",
+        };
+      const grant = buildGrant("consent/restrict", recordingId, input);
+      dispatch(withCommandMeta({ type: "consent/restrict", grant }));
+      return { ok: true, value: grant };
+    },
+    [buildGrant, validateConsentInput, withCommandMeta],
+  );
+
+  const withdrawConsent = useCallback(
+    (
+      recordingId: string,
+      input: Pick<
+        ConsentInput,
+        "grantedBy" | "channel" | "evidenceRef" | "note"
+      >,
+    ): CommandResult<ConsentGrant> => {
+      const errors = validateConsentInput(recordingId, input, false);
+      if (Object.keys(errors).length)
+        return {
+          ok: false,
+          errors,
+          message: "Record who withdrew consent and the evidence.",
+        };
+      const grant = buildGrant("consent/withdraw", recordingId, {
+        ...input,
+        purposes: [],
+        grantedAt: new Date().toISOString().slice(0, 10),
+      });
+      dispatch(withCommandMeta({ type: "consent/withdraw", grant }));
+      return { ok: true, value: grant };
+    },
+    [buildGrant, validateConsentInput, withCommandMeta],
+  );
+
   const checkReadiness = useCallback(() => {
-    const analysis = analyzeRoute(state.recordings, state.sites);
-    const result = evaluateRelease(state, analysis);
+    const now = new Date();
+    const analysis = analyzeRoute(
+      state.recordings,
+      state.sites,
+      state.consents,
+      now,
+    );
+    const result = evaluateRelease(state, analysis, now);
     dispatch(
       withCommandMeta({
         type: "project/readiness",
-        release: createReleaseRecord(state, analysis, result),
+        release: createReleaseRecord(state, analysis, result, now),
       }),
     );
     return result;
@@ -307,6 +457,9 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       reorderRecording,
       addIssue,
       transitionQualityIssue,
+      recordConsent,
+      restrictConsent,
+      withdrawConsent,
       updatePreferences,
       checkReadiness,
       createSnapshot,
@@ -322,6 +475,9 @@ export function StudyProvider({ children }: { children: ReactNode }) {
       reorderRecording,
       addIssue,
       transitionQualityIssue,
+      recordConsent,
+      restrictConsent,
+      withdrawConsent,
       updatePreferences,
       checkReadiness,
       createSnapshot,

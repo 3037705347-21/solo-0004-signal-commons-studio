@@ -1,6 +1,6 @@
 import type { StudyState } from "./models";
 
-const FINGERPRINT_PREFIX = "sc-r1";
+const FINGERPRINT_PREFIX = "sc-r2";
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
@@ -59,6 +59,25 @@ export function releaseFingerprint(state: StudyState): string {
         isFeatured: recording.isFeatured,
         tags: [...recording.tags].sort(),
         color: recording.color,
+      })),
+    consents: (state.consents ?? [])
+      .slice()
+      .sort((left, right) =>
+        left.id.localeCompare(right.id),
+      )
+      .map((grant) => ({
+        id: grant.id,
+        recordingId: grant.recordingId,
+        status: grant.status,
+        purposes: [...grant.purposes].sort(),
+        grantedBy: grant.grantedBy,
+        channel: grant.channel,
+        evidenceRef: grant.evidenceRef,
+        note: grant.note,
+        grantedAt: grant.grantedAt,
+        expiresAt: grant.expiresAt ?? null,
+        supersededAt: grant.supersededAt ?? null,
+        createdAt: grant.createdAt,
       })),
     sites: state.sites
       .slice()

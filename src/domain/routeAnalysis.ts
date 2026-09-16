@@ -1,4 +1,6 @@
+import { consentForRecording } from "./consent";
 import type {
+  ConsentGrant,
   ConstraintFinding,
   Recording,
   RouteAnalysis,
@@ -29,10 +31,68 @@ function sensitiveFinding(
   };
 }
 
+/**
+ * Consent findings for a clip considered for a site. Withdrawn, expired, or
+ * out-of-route-scope consent blocks use; unconfirmed consent is a warning;
+ * route consent without archive consent is a non-blocking notice.
+ */
+function consentFindings(
+  recording: Recording,
+  site: Site,
+  grants: ConsentGrant[] | undefined,
+  at: Date,
+): ConstraintFinding[] {
+  if (!grants) return [];
+  const decision = consentForRecording(recording.id, grants, at);
+  if (decision.purposes.includes("route")) {
+    if (!decision.purposes.includes("archive"))
+      return [
+        {
+          id: `consent-archive-${recording.id}`,
+          type: "notice",
+          title: "Archive use not cleared",
+          detail:
+            "Route playback is consented, but public archive release is outside the current scope.",
+          recordingId: recording.id,
+        },
+      ];
+    return [];
+  }
+  if (decision.status === "pending")
+    return [
+      {
+        id: `consent-pending-${recording.id}`,
+        type: "warning",
+        title: "Consent not confirmed",
+        detail: `Confirm ${recording.source}'s consent before relying on this clip.`,
+        siteId: site.id,
+        recordingId: recording.id,
+      },
+    ];
+  const reason =
+    decision.status === "withdrawn"
+      ? "Consent was withdrawn; the clip cannot be used for new content."
+      : decision.status === "expired"
+        ? "Consent has expired and cannot authorize new use."
+        : "The current consent scope does not cover listening-route playback.";
+  return [
+    {
+      id: `consent-route-${recording.id}`,
+      type: "error",
+      title: "Clip lacks usable route consent",
+      detail: `${recording.title}: ${reason}`,
+      siteId: site.id,
+      recordingId: recording.id,
+    },
+  ];
+}
+
 export function canPlaceRecording(
   recording: Recording,
   site: Site,
   current: Recording[] = [],
+  grants?: ConsentGrant[],
+  at = new Date(),
 ): ConstraintFinding[] {
   const findings: ConstraintFinding[] = [];
   const nextSeconds =
@@ -58,12 +118,15 @@ export function canPlaceRecording(
     });
   const sensitivity = sensitiveFinding(recording, site);
   if (sensitivity) findings.push(sensitivity);
+  findings.push(...consentFindings(recording, site, grants, at));
   return findings;
 }
 
 export function analyzeRoute(
   recordings: Recording[],
   sites: Site[],
+  grants?: ConsentGrant[],
+  at = new Date(),
 ): RouteAnalysis {
   const findings: ConstraintFinding[] = [];
   const placedIds = new Set<string>();
@@ -82,7 +145,10 @@ export function analyzeRoute(
         : 0;
       const clipUtilization = site.maxClips ? clips.length / site.maxClips : 0;
       const siteFindings = clips
-        .map((clip) => sensitiveFinding(clip, site))
+        .flatMap((clip) => [
+          sensitiveFinding(clip, site),
+          ...consentFindings(clip, site, grants, at),
+        ])
         .filter((finding): finding is ConstraintFinding => Boolean(finding));
       if (clips.length > site.maxClips)
         siteFindings.push({

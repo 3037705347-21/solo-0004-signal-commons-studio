@@ -1,3 +1,4 @@
+import { isConsentUsable } from "./consent";
 import type {
   ListenerProjection,
   ListenerScenarioInput,
@@ -45,7 +46,7 @@ export function projectScenario(
       (state.recordings.filter(
         (recording) =>
           recording.transcriptStatus === "verified" &&
-          recording.consentStatus === "confirmed",
+          isConsentUsable(recording.id, state.consents, "route"),
       ).length /
         Math.max(1, state.recordings.length)) *
         100,

@@ -1,4 +1,5 @@
-import type { Recording, Site } from "./models";
+import { isConsentUsable } from "./consent";
+import type { ConsentGrant, Recording, Site } from "./models";
 export interface AccessAudit {
   totalRequirements: number;
   coveredRequirements: number;
@@ -9,6 +10,7 @@ export interface AccessAudit {
 export function auditAccessibility(
   recordings: Recording[],
   sites: Site[],
+  consents: ConsentGrant[] = [],
 ): AccessAudit {
   const byRecording = new Map(
     sites.flatMap((site) => site.recordingIds.map((id) => [id, site] as const)),
@@ -16,13 +18,15 @@ export function auditAccessibility(
   const requirements = recordings.filter(
     (recording) =>
       recording.transcriptStatus !== "verified" ||
-      recording.consentStatus !== "confirmed",
+      !isConsentUsable(recording.id, consents, "route"),
   );
   const missing = requirements.map((recording) => {
     const site = byRecording.get(recording.id);
     const reasons = [
       recording.transcriptStatus !== "verified" ? "verified transcript" : "",
-      recording.consentStatus !== "confirmed" ? "confirmed consent" : "",
+      !isConsentUsable(recording.id, consents, "route")
+        ? "confirmed consent"
+        : "",
     ].filter(Boolean);
     return {
       recordingId: recording.id,

@@ -1,6 +1,15 @@
 import { sortSites } from "./filters";
 import { formatMinutes } from "./formatters";
-import type { IssueSeverity, IssueStatus, StudyState, Site } from "./models";
+import { consentDescriptions } from "./labels";
+import { consentForRecording } from "./consent";
+import type {
+  ConsentPurpose,
+  ConsentStatus,
+  IssueSeverity,
+  IssueStatus,
+  StudyState,
+  Site,
+} from "./models";
 
 export interface ChecklistFinding {
   severity: IssueSeverity;
@@ -16,6 +25,10 @@ export interface SiteChecklistEntry {
   catalogId: string;
   title: string;
   durationSeconds: number;
+  consentStatus: ConsentStatus;
+  consentPurposes: ConsentPurpose[];
+  consentGrantedBy: string | null;
+  consentEvidenceRef: string | null;
   unresolvedFindings: ChecklistFinding[];
 }
 
@@ -75,6 +88,11 @@ export function buildSiteChecklist(
     .map((id, index) => {
       const recording = recordingById.get(id);
       if (!recording) return null;
+      const decision = consentForRecording(
+        recording.id,
+        state.consents ?? [],
+        at,
+      );
       const recordingFindings = unresolved
         .filter((issue) => issue.recordingId === recording.id)
         .map((issue) => {
@@ -87,6 +105,10 @@ export function buildSiteChecklist(
         catalogId: recording.catalogId,
         title: recording.title,
         durationSeconds: recording.audioSpec.durationSeconds,
+        consentStatus: decision.status,
+        consentPurposes: decision.purposes,
+        consentGrantedBy: decision.grant?.grantedBy ?? null,
+        consentEvidenceRef: decision.grant?.evidenceRef ?? null,
         unresolvedFindings: [...recordingFindings, ...siteFindings],
       };
     })
@@ -145,7 +167,16 @@ export function serializeSiteChecklistCsv(checklist: SiteChecklist): string {
     `Listening prompt,${csvCell(checklist.prompt)}`,
     `Generated,${csvCell(checklist.generatedAt)}`,
     "",
-    ["Sequence", "Catalog ID", "Clip", "duration (sec)", "Unresolved findings"]
+    [
+      "Sequence",
+      "Catalog ID",
+      "Clip",
+      "duration (sec)",
+      "Consent",
+      "Consent purposes",
+      "Consent evidence",
+      "Unresolved findings",
+    ]
       .map(csvCell)
       .join(","),
   ];
@@ -158,6 +189,11 @@ export function serializeSiteChecklistCsv(checklist: SiteChecklist): string {
         entry.catalogId,
         entry.title,
         entry.durationSeconds,
+        consentDescriptions[entry.consentStatus],
+        entry.consentPurposes.join(" ") || "none",
+        entry.consentEvidenceRef
+          ? `${entry.consentGrantedBy ?? ""} · ${entry.consentEvidenceRef}`.trim()
+          : "",
         findings,
       ]
         .map(csvCell)

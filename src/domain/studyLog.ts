@@ -17,6 +17,12 @@ export function describeAction(action: StudyAction): string {
       return `Created finding ${action.issue.title}`;
     case "issue/transition":
       return `Moved finding to ${action.status}`;
+    case "consent/grant":
+      return `Recorded consent for clip ${action.grant.recordingId}`;
+    case "consent/restrict":
+      return `Restricted consent scope for clip ${action.grant.recordingId}`;
+    case "consent/withdraw":
+      return `Withdrew consent for clip ${action.grant.recordingId}`;
     case "preferences/update":
       return `Updated listener profile`;
     case "project/readiness":

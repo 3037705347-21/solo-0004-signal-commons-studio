@@ -12,6 +12,8 @@ import {
   draftFromRecording,
   emptyRecordingDraft,
 } from "../../domain/recordingValidation";
+import { consentForRecording } from "../../domain/consent";
+import { describeConsent } from "../../domain/labels";
 import { titleCase } from "../../domain/formatters";
 import type {
   Recording,
@@ -192,6 +194,7 @@ export function LibraryPage() {
             <RecordingCard
               key={recording.id}
               recording={recording}
+              consents={state.consents}
               onEdit={() =>
                 setEditor({
                   draft: draftFromRecording(recording),
@@ -223,13 +226,22 @@ export function LibraryPage() {
 
 function RecordingCard({
   recording,
+  consents,
   onEdit,
   onRemove,
 }: {
   recording: Recording;
+  consents: import("../../domain/models").ConsentGrant[];
   onEdit: () => void;
   onRemove: () => void;
 }) {
+  const consent = consentForRecording(recording.id, consents);
+  const consentTone =
+    consent.status === "confirmed"
+      ? "positive"
+      : consent.status === "restricted"
+        ? "warning"
+        : "danger";
   return (
     <article className="recording-card">
       <div className="recording-card-top">
@@ -256,6 +268,7 @@ function RecordingCard({
         >
           {titleCase(recording.sensitivity)}
         </Badge>
+        <Badge tone={consentTone}>{describeConsent(consent.status)}</Badge>
         {recording.isFeatured && <Badge tone="danger">Featured clip</Badge>}
       </div>
       <div className="recording-card-bottom">
@@ -420,20 +433,6 @@ function RecordingEditor({
           <option value="missing">Missing</option>
           <option value="draft">Draft</option>
           <option value="verified">Verified</option>
-        </SelectField>
-        <SelectField
-          label="Consent status"
-          value={draft.consentStatus}
-          onChange={(event) =>
-            update(
-              "consentStatus",
-              event.target.value as RecordingDraft["consentStatus"],
-            )
-          }
-        >
-          <option value="pending">Pending</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="restricted">Restricted</option>
         </SelectField>
         <TextField
           label="Tags"

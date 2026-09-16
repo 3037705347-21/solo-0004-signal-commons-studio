@@ -1,4 +1,5 @@
 import { createId } from "../domain/ids";
+import { consentForRecording } from "../domain/consent";
 import { canPlaceRecording } from "../domain/routeAnalysis";
 import { compactLog, makeLogEntry } from "../domain/studyLog";
 import {
@@ -6,7 +7,7 @@ import {
   transitionIssue,
   transitionProject,
 } from "../domain/transitions";
-import type { StudyState } from "../domain/models";
+import type { ConsentGrant, StudyState } from "../domain/models";
 import type { StudyAction } from "./actions";
 
 const AUDIT_LOG_LIMIT = 80;
@@ -129,6 +130,20 @@ function removeRecordingFromSites(
   };
 }
 
+function applyGrant(state: StudyState, grant: ConsentGrant): StudyState {
+  const consents = [...state.consents, grant];
+  const headline = consentForRecording(grant.recordingId, consents).status;
+  return {
+    ...state,
+    consents,
+    recordings: state.recordings.map((recording) =>
+      recording.id === grant.recordingId
+        ? { ...recording, consentStatus: headline }
+        : recording,
+    ),
+  };
+}
+
 function assignRecording(
   state: StudyState,
   recordingId: string,
@@ -157,9 +172,12 @@ function assignRecording(
     .filter((candidate): candidate is NonNullable<typeof candidate> =>
       Boolean(candidate),
     );
-  const [blocking] = canPlaceRecording(recording, targetSite, currentClips).filter(
-    (finding) => finding.type === "error",
-  );
+  const [blocking] = canPlaceRecording(
+    recording,
+    targetSite,
+    currentClips,
+    state.consents,
+  ).filter((finding) => finding.type === "error");
   if (blocking) {
     throw new Error(blocking.detail);
   }
@@ -299,6 +317,14 @@ export function workspaceReducer(
               : issue,
           ),
         }),
+      );
+    case "consent/grant":
+    case "consent/restrict":
+    case "consent/withdraw":
+      return mutate(
+        state,
+        action,
+        regressReadyProject(applyGrant(state, action.grant)),
       );
     case "preferences/update":
       return mutate(

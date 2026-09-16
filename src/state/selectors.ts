@@ -50,7 +50,11 @@ export function selectIssuesForSite(
 }
 
 export function selectWorkspaceSummary(state: StudyState) {
-  const analysis = analyzeRoute(state.recordings, state.sites);
+  const analysis = analyzeRoute(
+    state.recordings,
+    state.sites,
+    state.consents,
+  );
   return {
     analysis,
     unplacedRecordings: getUnplacedRecordings(state.recordings, state.sites),

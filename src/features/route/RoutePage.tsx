@@ -26,12 +26,17 @@ import {
   canPlaceRecording,
   getUnplacedRecordings,
 } from "../../domain/routeAnalysis";
+import { consentForRecording } from "../../domain/consent";
 import {
   formatMinutes,
   formatPercent,
   titleCase,
 } from "../../domain/formatters";
-import type { Recording, Site } from "../../domain/models";
+import type {
+  ConsentGrant,
+  Recording,
+  Site,
+} from "../../domain/models";
 import { useStudy } from "../../state/StudyContext";
 
 export function RoutePage() {
@@ -42,8 +47,8 @@ export function RoutePage() {
   );
   const [notice, setNotice] = useState<string | null>(null);
   const analysis = useMemo(
-    () => analyzeRoute(state.recordings, state.sites),
-    [state.recordings, state.sites],
+    () => analyzeRoute(state.recordings, state.sites, state.consents),
+    [state.recordings, state.sites, state.consents],
   );
   const unplaced = getUnplacedRecordings(state.recordings, state.sites);
   const place = (recording: Recording, site: Site) => {
@@ -54,7 +59,12 @@ export function RoutePage() {
       .filter((id) => id !== recording.id)
       .map((id) => recordingById.get(id))
       .filter((candidate): candidate is Recording => Boolean(candidate));
-    const preview = canPlaceRecording(recording, site, currentClips);
+    const preview = canPlaceRecording(
+      recording,
+      site,
+      currentClips,
+      state.consents,
+    );
     if (preview.some((finding) => finding.type === "error")) {
       setNotice(preview[0].detail);
       window.setTimeout(() => setNotice(null), 2800);
@@ -139,6 +149,7 @@ export function RoutePage() {
                   site={site}
                   index={index}
                   recordings={state.recordings}
+                  consents={state.consents}
                   analysis={analysis.sites.find(
                     (item) => item.siteId === site.id,
                   )}
@@ -244,6 +255,7 @@ function SiteLane({
   site,
   index,
   recordings,
+  consents,
   analysis,
   selectedRecording,
   onSelect,
@@ -254,6 +266,7 @@ function SiteLane({
   site: Site;
   index: number;
   recordings: Recording[];
+  consents: ConsentGrant[];
   analysis?: ReturnType<typeof analyzeRoute>["sites"][number];
   selectedRecording: string | null;
   onSelect?: (id: string | null) => void;
@@ -264,6 +277,12 @@ function SiteLane({
   void onSelect;
   const recordingMap = new Map(
     recordings.map((recording) => [recording.id, recording]),
+  );
+  const consentById = new Map(
+    recordings.map((recording) => [
+      recording.id,
+      consentForRecording(recording.id, consents),
+    ]),
   );
   const placed = site.recordingIds
     .map((id) => recordingMap.get(id))
@@ -318,8 +337,15 @@ function SiteLane({
           </span>
         </div>
         <div className="placement-list">
-          {placed.map((recording, recordingIndex) => (
-            <div className="placement-item" key={recording.id}>
+          {placed.map((recording, recordingIndex) => {
+            const consent = consentById.get(recording.id);
+            const blocked = !consent?.purposes.includes("route");
+            return (
+            <div
+              className={`placement-item ${blocked ? "placement-consent-blocked" : ""}`}
+              key={recording.id}
+              data-testid={`placement-${recording.id}`}
+            >
               <GripVertical size={15} className="drag-handle" />
               <RecordingGlyph color={recording.color} size="small" />
               <div className="placement-info">
@@ -328,6 +354,9 @@ function SiteLane({
                   {titleCase(recording.signalRole)} ·{" "}
                   {Math.round(recording.audioSpec.durationSeconds / 60)} min
                 </span>
+                {consent && blocked && (
+                  <Badge tone="danger">{titleCase(consent.status)} consent</Badge>
+                )}
               </div>
               <div className="placement-actions">
                 <Button
@@ -352,7 +381,8 @@ function SiteLane({
                 />
               </div>
             </div>
-          ))}
+            );
+          })}
           {selected && !site.recordingIds.includes(selected.id) && (
             <button
               className="drop-target"

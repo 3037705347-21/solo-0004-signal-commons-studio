@@ -1,3 +1,4 @@
+import { isConsentUsable } from "./consent";
 import type {
   Recording,
   RouteAnalysis,
@@ -48,7 +49,7 @@ export function scorePlanHealth(
   const accessNeeds = state.recordings.filter(
     (recording) =>
       recording.transcriptStatus !== "verified" ||
-      recording.consentStatus !== "confirmed",
+      !isConsentUsable(recording.id, state.consents, "route"),
   );
   const access = accessNeeds.length
     ? ratio(
@@ -84,7 +85,7 @@ function unresolvedAccess(state: StudyState, analysis: RouteAnalysis): number {
   return state.recordings.filter(
     (recording) =>
       (recording.transcriptStatus !== "verified" ||
-        recording.consentStatus !== "confirmed") &&
+        !isConsentUsable(recording.id, state.consents, "route")) &&
       ids.has(recording.id),
   ).length;
 }

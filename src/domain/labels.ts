@@ -1,4 +1,6 @@
 import type {
+  ConsentGrantStatus,
+  ConsentPurpose,
   ConsentStatus,
   IssueSeverity,
   IssueStatus,
@@ -35,7 +37,19 @@ export const transcriptDescriptions: Record<TranscriptStatus, string> = {
 export const consentDescriptions: Record<ConsentStatus, string> = {
   pending: "Pending",
   confirmed: "Confirmed",
+  restricted: "Restricted scope",
+  expired: "Expired",
+  withdrawn: "Withdrawn",
+};
+export const consentPurposeDescriptions: Record<ConsentPurpose, string> = {
+  route: "Listening route",
+  transcript: "Transcript & captions",
+  archive: "Public archive",
+};
+export const grantStatusDescriptions: Record<ConsentGrantStatus, string> = {
+  active: "In force",
   restricted: "Restricted",
+  withdrawn: "Withdrawn",
 };
 export function describeRole(value: SignalRole): string {
   return roleDescriptions[value];

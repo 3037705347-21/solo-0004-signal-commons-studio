@@ -1,6 +1,9 @@
+import { isGrantInForce, latestGrantFor } from "../domain/consent";
 import type {
   AudioSpec,
   CommandLogEntry,
+  ConsentGrant,
+  ConsentPurpose,
   QualityIssue,
   Recording,
   ReleaseRecord,
@@ -16,7 +19,24 @@ const PROJECT_STAGES = new Set(["draft", "review", "ready"]);
 const SIGNAL_ROLES = new Set(["arrival", "texture", "voice", "departure"]);
 const SENSITIVITIES = new Set(["public", "restricted", "sensitive"]);
 const TRANSCRIPT_STATUSES = new Set(["missing", "draft", "verified"]);
-const CONSENT_STATUSES = new Set(["pending", "confirmed", "restricted"]);
+const LEGACY_CONSENT_STATUSES = new Set([
+  "pending",
+  "confirmed",
+  "restricted",
+]);
+const CONSENT_STATUSES = new Set([
+  "pending",
+  "confirmed",
+  "restricted",
+  "expired",
+  "withdrawn",
+]);
+const GRANT_STATUSES = new Set(["active", "restricted", "withdrawn"]);
+const CONSENT_PURPOSES = new Set<ConsentPurpose>([
+  "route",
+  "transcript",
+  "archive",
+]);
 const ISSUE_SEVERITIES = new Set(["note", "warning", "critical"]);
 const ISSUE_STATUSES = new Set(["open", "in-progress", "resolved"]);
 
@@ -28,6 +48,10 @@ function isRecord(value: unknown): value is UnknownRecord {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === "string" && value.length > 0);
 }
 
 function isPositiveNumber(value: unknown): value is number {
@@ -46,8 +70,20 @@ function isAudioSpec(value: unknown): value is AudioSpec {
   );
 }
 
+function hasLegacyConsent(value: UnknownRecord): boolean {
+  return (
+    typeof value.consentStatus === "string" &&
+    LEGACY_CONSENT_STATUSES.has(value.consentStatus)
+  );
+}
+
 function isRecording(value: unknown): value is Recording {
   if (!isRecord(value)) return false;
+  const consentOk =
+    typeof value.consentStatus === "string" &&
+    (CONSENT_STATUSES.has(value.consentStatus) ||
+      // v2 records may still carry the three legacy values.
+      LEGACY_CONSENT_STATUSES.has(value.consentStatus));
   return (
     isNonEmptyString(value.id) &&
     isNonEmptyString(value.catalogId) &&
@@ -64,8 +100,7 @@ function isRecording(value: unknown): value is Recording {
     SENSITIVITIES.has(value.sensitivity) &&
     typeof value.transcriptStatus === "string" &&
     TRANSCRIPT_STATUSES.has(value.transcriptStatus) &&
-    typeof value.consentStatus === "string" &&
-    CONSENT_STATUSES.has(value.consentStatus) &&
+    consentOk &&
     typeof value.isFeatured === "boolean" &&
     Array.isArray(value.tags) &&
     value.tags.every((tag) => typeof tag === "string") &&
@@ -181,8 +216,13 @@ function isReleaseResult(value: unknown): value is ReleaseResult {
 
 function isSnapshot(value: unknown): value is Snapshot {
   if (!isRecord(value)) return false;
+  // Snapshot schema 2 predates the consent ledger; schema 3 freezes consents.
   if (
-    value.schemaVersion !== 2 ||
+    value.schemaVersion !== 2 &&
+    value.schemaVersion !== 3
+  )
+    return false;
+  if (
     !isNonEmptyString(value.generatedAt) ||
     !Number.isInteger(value.revision) ||
     Number(value.revision) < 0 ||
@@ -194,6 +234,7 @@ function isSnapshot(value: unknown): value is Snapshot {
     !Array.isArray(value.unresolvedIssues)
   )
     return false;
+  if (value.schemaVersion === 3 && !Array.isArray(value.consents)) return false;
   return (
     typeof value.summary.recordingCount === "number" &&
     typeof value.summary.siteCount === "number" &&
@@ -254,6 +295,82 @@ function migrateRelease(value: unknown): ReleaseRecord | null {
   };
 }
 
+/**
+ * Synthesize a single ledger entry from a pre-ledger recording's headline
+ * consent status so legacy workspaces keep their original standing.
+ */
+function legacyGrantForRecording(recording: Recording): ConsentGrant {
+  const status = recording.consentStatus;
+  const grantedAt = recording.updatedAt;
+  if (status === "confirmed")
+    return {
+      id: `grant-legacy-${recording.id}`,
+      recordingId: recording.id,
+      status: "active",
+      purposes: ["route", "transcript", "archive"],
+      grantedBy: recording.source,
+      channel: "Legacy recording record",
+      evidenceRef: `Imported from ${recording.catalogId}`,
+      note: "Synthesized from the clip's pre-ledger confirmed consent flag.",
+      grantedAt,
+      createdAt: grantedAt,
+    };
+  if (status === "restricted")
+    return {
+      id: `grant-legacy-${recording.id}`,
+      recordingId: recording.id,
+      status: "restricted",
+      purposes: ["route", "transcript", "archive"],
+      grantedBy: recording.source,
+      channel: "Legacy recording record",
+      evidenceRef: `Imported from ${recording.catalogId}`,
+      note: "Synthesized from the clip's pre-ledger restricted consent flag.",
+      grantedAt,
+      createdAt: grantedAt,
+    };
+  return {
+    id: `grant-legacy-${recording.id}`,
+    recordingId: recording.id,
+    status: "withdrawn",
+    purposes: [],
+    grantedBy: recording.source,
+    channel: "Legacy recording record",
+    evidenceRef: `Imported from ${recording.catalogId}`,
+    note: "No recorded consent was present before the consent ledger existed.",
+    grantedAt,
+    createdAt: grantedAt,
+  };
+}
+
+function isConsentGrant(value: unknown): value is ConsentGrant {
+  if (!isRecord(value)) return false;
+  if (
+    !isNonEmptyString(value.id) ||
+    !isNonEmptyString(value.recordingId) ||
+    typeof value.status !== "string" ||
+    !GRANT_STATUSES.has(value.status) ||
+    !Array.isArray(value.purposes) ||
+    !value.purposes.every(
+      (purpose) =>
+        typeof purpose === "string" &&
+        CONSENT_PURPOSES.has(purpose as ConsentPurpose),
+    ) ||
+    new Set(value.purposes).size !== value.purposes.length ||
+    typeof value.grantedBy !== "string" ||
+    typeof value.channel !== "string" ||
+    typeof value.evidenceRef !== "string" ||
+    typeof value.note !== "string" ||
+    !isNonEmptyString(value.grantedAt) ||
+    !isNonEmptyString(value.createdAt) ||
+    !isOptionalString(value.expiresAt) ||
+    !isOptionalString(value.supersededAt)
+  )
+    return false;
+  // A withdrawal authorizes no purposes; active/restricted grants need one.
+  if (value.status !== "withdrawn" && value.purposes.length === 0) return false;
+  return true;
+}
+
 function migratedUpdatedAt(state: StudyState): string {
   const timestamps = [
     state.project.lastReadinessCheck,
@@ -270,7 +387,8 @@ function migratedUpdatedAt(state: StudyState): string {
 
 export function migrateWorkspace(value: unknown): StudyState | null {
   if (!isRecord(value)) return null;
-  if (value.version !== 1 && value.version !== 2) return null;
+  if (value.version !== 1 && value.version !== 2 && value.version !== 3)
+    return null;
   if (!isProject(value.project)) return null;
   if (!Array.isArray(value.recordings) || !value.recordings.every(isRecording))
     return null;
@@ -278,26 +396,47 @@ export function migrateWorkspace(value: unknown): StudyState | null {
   if (!Array.isArray(value.issues) || !value.issues.every(isIssue)) return null;
   if (!isPreferences(value.preferences)) return null;
 
-  if (value.version === 1) {
+  if (value.version === 1 || value.version === 2) {
     const legacy: StudyState = {
-      version: 2,
-      revision: 0,
+      version: 3,
+      revision: value.version === 2 && Number.isInteger(value.revision) ? Number(value.revision) : 0,
       updatedAt: "",
       project: value.project,
-      recordings: value.recordings,
+      recordings: value.recordings.map((recording) => ({
+        ...recording,
+        consentStatus: hasLegacyConsent(recording as unknown as UnknownRecord)
+          ? recording.consentStatus
+          : "pending",
+      })),
+      consents: value.recordings
+        // Only recordings with a recorded decision get a ledger entry;
+        // pending clips simply have no grant.
+        .filter((recording) => recording.consentStatus !== "pending")
+        .map(legacyGrantForRecording),
       sites: value.sites,
       issues: value.issues,
       preferences: value.preferences,
-      auditLog: [],
-      release: null,
+      auditLog:
+        value.version === 2 && Array.isArray(value.auditLog)
+          ? value.auditLog
+          : [],
+      release: value.version === 2 ? migrateRelease(value.release) : null,
     };
     return {
       ...legacy,
-      updatedAt: migratedUpdatedAt(legacy),
+      updatedAt:
+        value.version === 2 && isNonEmptyString(value.updatedAt)
+          ? value.updatedAt
+          : migratedUpdatedAt(legacy),
+      lastSavedAt: isNonEmptyString(value.lastSavedAt)
+        ? value.lastSavedAt
+        : undefined,
     };
   }
 
   if (!Number.isInteger(value.revision) || Number(value.revision) < 0)
+    return null;
+  if (!Array.isArray(value.consents) || !value.consents.every(isConsentGrant))
     return null;
   const auditLog = Array.isArray(value.auditLog)
     ? value.auditLog
@@ -305,13 +444,14 @@ export function migrateWorkspace(value: unknown): StudyState | null {
         .filter((entry): entry is CommandLogEntry => Boolean(entry))
     : [];
   return {
-    version: 2,
+    version: 3,
     revision: Number(value.revision),
     updatedAt: isNonEmptyString(value.updatedAt)
       ? value.updatedAt
       : new Date().toISOString(),
     project: value.project,
     recordings: value.recordings,
+    consents: value.consents,
     sites: value.sites,
     issues: value.issues,
     preferences: value.preferences,
@@ -321,6 +461,39 @@ export function migrateWorkspace(value: unknown): StudyState | null {
       ? value.lastSavedAt
       : undefined,
   };
+}
+
+/**
+ * Drop grants for deleted recordings, de-duplicate by id, and resync the
+ * denormalized headline consent on each clip from the surviving ledger.
+ */
+function reconcileConsents(state: StudyState, at = new Date()): StudyState {
+  const recordingIds = new Set(
+    state.recordings.map((recording) => recording.id),
+  );
+  const seen = new Set<string>();
+  const consents = (state.consents ?? []).filter((grant) => {
+    if (!recordingIds.has(grant.recordingId) || seen.has(grant.id))
+      return false;
+    seen.add(grant.id);
+    return true;
+  });
+  const recordings = state.recordings.map((recording) => {
+    const grant = latestGrantFor(recording.id, consents);
+    if (!grant) {
+      return recording.consentStatus === "pending"
+        ? recording
+        : { ...recording, consentStatus: "pending" as const };
+    }
+    let headline = recording.consentStatus;
+    if (grant.status === "withdrawn") headline = "withdrawn";
+    else if (!isGrantInForce(grant, at)) headline = "expired";
+    else headline = grant.status === "restricted" ? "restricted" : "confirmed";
+    return recording.consentStatus === headline
+      ? recording
+      : { ...recording, consentStatus: headline };
+  });
+  return { ...state, consents, recordings };
 }
 
 export function validateReferences(state: StudyState): StudyState {
@@ -346,7 +519,7 @@ export function validateReferences(state: StudyState): StudyState {
         ? issue.recordingId
         : undefined,
   }));
-  const normalized = { ...state, sites, issues };
+  const normalized = reconcileConsents({ ...state, sites, issues });
   if (
     normalized.release?.status === "ready" &&
     normalized.release.fingerprint !== releaseFingerprint(normalized)

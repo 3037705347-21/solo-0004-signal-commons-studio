@@ -2,7 +2,14 @@ export type ProjectStage = "draft" | "review" | "ready";
 export type SignalRole = "arrival" | "texture" | "voice" | "departure";
 export type Sensitivity = "public" | "restricted" | "sensitive";
 export type TranscriptStatus = "missing" | "draft" | "verified";
-export type ConsentStatus = "pending" | "confirmed" | "restricted";
+export type ConsentStatus =
+  | "pending"
+  | "confirmed"
+  | "restricted"
+  | "expired"
+  | "withdrawn";
+export type ConsentPurpose = "route" | "transcript" | "archive";
+export type ConsentGrantStatus = "active" | "restricted" | "withdrawn";
 export type IssueSeverity = "note" | "warning" | "critical";
 export type IssueStatus = "open" | "in-progress" | "resolved";
 
@@ -11,6 +18,51 @@ export interface AudioSpec {
   channels: 1 | 2;
   bitDepth: 16 | 24 | 32;
   durationSeconds: number;
+}
+
+/**
+ * A single consent decision for a recording. The ledger is append-only:
+ * withdrawing consent or narrowing its scope adds a newer grant rather than
+ * editing an old one, so the authority under which every release was made
+ * stays auditable.
+ */
+export interface ConsentGrant {
+  id: string;
+  recordingId: string;
+  /** Current lifecycle state of this grant. */
+  status: ConsentGrantStatus;
+  /** Purposes this consent covers. An active grant only authorizes these uses. */
+  purposes: ConsentPurpose[];
+  /** Who granted the consent (person, circle, or representative). */
+  grantedBy: string;
+  /** How consent was captured, e.g. signed form, verbal with witness, email. */
+  channel: string;
+  /** Reference to the underlying evidence (form id, email, note location). */
+  evidenceRef: string;
+  /** Free-text note explaining a restriction, withdrawal, or expiry handling. */
+  note: string;
+  /** When consent took effect. */
+  grantedAt: string;
+  /** Optional ISO date the consent lapses on; undefined means open-ended. */
+  expiresAt?: string;
+  /** Set when consent is withdrawn or scoped down by a newer decision. */
+  supersededAt?: string;
+  createdAt: string;
+}
+
+/** Frozen, purpose-resolved consent captured inside a release snapshot. */
+export interface ConsentBasis {
+  grantId: string;
+  recordingId: string;
+  status: ConsentGrantStatus;
+  purposes: ConsentPurpose[];
+  grantedBy: string;
+  channel: string;
+  evidenceRef: string;
+  grantedAt: string;
+  expiresAt?: string;
+  /** ISO timestamp at which this basis was resolved against the ledger. */
+  resolvedAt: string;
 }
 
 export interface Recording {
@@ -26,6 +78,11 @@ export interface Recording {
   signalRole: SignalRole;
   sensitivity: Sensitivity;
   transcriptStatus: TranscriptStatus;
+  /**
+   * Denormalized headline standing derived from the consent ledger
+   * (`state.consents`). All enforcement reads the ledger directly; this field
+   * only supports legacy storage and compact card badges.
+   */
   consentStatus: ConsentStatus;
   isFeatured: boolean;
   tags: string[];
@@ -92,11 +149,12 @@ export interface CommandLogEntry {
 }
 
 export interface StudyState {
-  version: 2;
+  version: 3;
   revision: number;
   updatedAt: string;
   project: FieldStudy;
   recordings: Recording[];
+  consents: ConsentGrant[];
   sites: Site[];
   issues: QualityIssue[];
   preferences: RoutePreferences;
@@ -120,7 +178,6 @@ export interface RecordingDraft {
   signalRole: SignalRole;
   sensitivity: Sensitivity;
   transcriptStatus: TranscriptStatus;
-  consentStatus: ConsentStatus;
   isFeatured: boolean;
   tags: string;
   color: string;
@@ -207,7 +264,7 @@ export interface ReleaseRecord {
 }
 
 export interface Snapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   generatedAt: string;
   releaseId: string;
   releaseSequence: number;
@@ -221,6 +278,12 @@ export interface Snapshot {
     routeSeconds: number;
     readinessScore: number;
   };
-  sites: Array<Site & { recordings: Recording[] }>;
+  sites: Array<
+    Site & {
+      recordings: Array<Recording & { consentBasis?: ConsentBasis }>;
+    }
+  >;
+  /** Frozen consent ledger at release time; published content keeps this basis. */
+  consents: ConsentGrant[];
   unresolvedIssues: QualityIssue[];
 }

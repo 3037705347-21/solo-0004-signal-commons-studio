@@ -1,6 +1,7 @@
 import type {
   Recording,
   IssueStatus,
+  ConsentGrant,
   ReleaseRecord,
   RoutePreferences,
   QualityIssue,
@@ -37,6 +38,9 @@ type StudyActionPayload =
       status: IssueStatus;
       at?: Date;
     }
+  | { type: "consent/grant"; grant: ConsentGrant }
+  | { type: "consent/withdraw"; grant: ConsentGrant }
+  | { type: "consent/restrict"; grant: ConsentGrant }
   | { type: "preferences/update"; preferences: RoutePreferences }
   | { type: "project/readiness"; release: ReleaseRecord }
   | { type: "workspace/reset"; state: StudyState }
